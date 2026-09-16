@@ -506,7 +506,7 @@ def fuel():
     for col,(lab,pct) in zip(cols,FUEL_LEVELS):
         with col:
             if st.button(f"⛽ {lab}\n{pct}%",key="fuel_"+lab,use_container_width=True,type="primary" if f["nivel"]==lab else "secondary"):
-                f["nivel"]=lab; f["percentual"]=pct
+                f["nivel"]=lab; f["percentual"]=pct; save_current_state(); st.rerun()
     f["percentual"]=st.slider("Percentual exato",0,100,int(f["percentual"]),5);
     nav(fragment=True)
 
@@ -522,7 +522,7 @@ def accessories():
         for col,opt,label in zip(cc[:3],["sim","nao","na"],["✓ SIM","✕ NÃO","— N/A"]):
             with col:
                 if st.button(label,key=f"acc_{i}_{opt}",use_container_width=True,type="primary" if it["status"]==opt else "secondary"):
-                    it["status"]=opt
+                    it["status"]=opt; save_current_state(); st.rerun()
         it["obs"]=cc[3].text_input("Observação",it["obs"],key=f"accobs_{i}",label_visibility="collapsed",placeholder="Observação opcional")
         st.divider()
     nav(fragment=True)
@@ -540,7 +540,7 @@ def tires():
                 for ocol,opt in zip(oc,["Bom","Regular","Ruim"]):
                     with ocol:
                         if st.button(opt,key=f"t_{key}_{opt}",use_container_width=True,type="primary" if it["estado"]==opt else "secondary"):
-                            it["estado"]=opt
+                            it["estado"]=opt; save_current_state(); st.rerun()
                 it["marca"]=pick_or_type("Marca",TIRE_BRANDS,it["marca"],f"tm_{key}")
                 it["medida"]=pick_or_type("Medida",TIRE_SIZES,it["medida"],f"td_{key}")
                 it["observacao"]=st.text_input("Observação",it["observacao"],key=f"to_{key}")
