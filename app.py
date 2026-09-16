@@ -536,6 +536,7 @@ def tires():
                 
     nav()
 
+@st.fragment
 def damage():
     c=st.session_state.inspection; av=c["avarias"]
     topbar("06 • Avarias","Marque arranhões/avarias com vermelho e amassados com azul direto no desenho do veículo.")
@@ -630,11 +631,16 @@ def damage():
     else:
         canvas_image = base_image
 
-    initial_drawing = canvas_image_drawing(canvas_image)
-    # O key do canvas NÃO pode mudar a cada novo traço.
-    # Quando o key mudava usando o hash da imagem, cada traço criava um
-    # canvas novo e o traço anterior desaparecia no próximo rerun.
+    # IMPORTANTE: não recriar o initial_drawing a cada traço.
+    # Se ele muda a cada rerun, o drawable-canvas pode reconstruir o Fabric.js
+    # enquanto o navegador ainda está mostrando o traço recém-feito. Isso causa
+    # o efeito de apagar -> esperar -> aparecer novamente.
+    # Mantemos a imagem inicial estável enquanto o usuário desenha.
     canvas_version = st.session_state.get(ver_key, 0)
+    init_key = f"canvas_initial_{view}_{canvas_version}"
+    if init_key not in st.session_state:
+        st.session_state[init_key] = canvas_image_drawing(canvas_image)
+    initial_drawing = st.session_state[init_key]
 
     can = st_canvas(
         fill_color="rgba(0,0,0,0)",
@@ -665,7 +671,9 @@ def damage():
             st.session_state[redo_key] = []
             av["imagem"] = new_image
             av["imagem_ok"] = True
-            save_current_state()
+            # Não gravamos o rascunho em disco a cada traço. Isso adicionava
+            # uma operação pesada ao rerun e aumentava o atraso visual.
+            # A navegação, desfazer/refazer e limpeza continuam salvando o estado.
 
     # Controles próprios e funcionais, abaixo do desenho.
     c1,c2,c3 = st.columns(3)
@@ -680,6 +688,7 @@ def damage():
             av["imagem"] = previous
             av["imagem_ok"] = True
             st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
+            st.session_state.pop(f"canvas_initial_{view}_{st.session_state[ver_key]}", None)
             save_current_state()
             st.rerun()
 
@@ -693,6 +702,7 @@ def damage():
             av["imagem"] = restored
             av["imagem_ok"] = True
             st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
+            st.session_state.pop(f"canvas_initial_{view}_{st.session_state[ver_key]}", None)
             save_current_state()
             st.rerun()
 
@@ -708,6 +718,7 @@ def damage():
             av["imagem_ok"] = False
             st.session_state[redo_key] = []
             st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
+            st.session_state.pop(f"canvas_initial_{view}_{st.session_state[ver_key]}", None)
             save_current_state()
             st.rerun()
     nav()
