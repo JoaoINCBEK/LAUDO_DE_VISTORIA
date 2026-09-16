@@ -1,6 +1,6 @@
 streamlit==1.40.0
 
-streamlit-drawable-canvas-fix==0.9.8
+streamlit-drawable-canvas==0.9.3
 
 reportlab>=4.0
 
