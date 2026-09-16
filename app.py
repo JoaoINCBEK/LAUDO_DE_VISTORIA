@@ -217,6 +217,53 @@ def canvas_b64(canvas, background=None):
         return b64_pil(compose_canvas_image(canvas, background))
     return b64_pil(Image.fromarray(canvas.image_data.astype("uint8")).convert("RGB"))
 
+def canvas_image_drawing(image):
+    """Coloca a imagem dentro do próprio Fabric.js, em vez de usar background_image.
+    Isso mantém desenho e imagem no mesmo sistema de coordenadas e evita o
+    deslocamento que pode ocorrer no background_image do drawable-canvas.
+    """
+    image = image.convert("RGB")
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+    src = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+    return {
+        "version": "4.4.0",
+        "objects": [{
+            "type": "image",
+            "originX": "left",
+            "originY": "top",
+            "left": 0,
+            "top": 0,
+            "width": image.width,
+            "height": image.height,
+            "fill": "rgb(0,0,0)",
+            "stroke": None,
+            "strokeWidth": 1,
+            "strokeDashArray": None,
+            "strokeLineCap": "butt",
+            "strokeLineJoin": "miter",
+            "strokeMiterLimit": 10,
+            "scaleX": 1,
+            "scaleY": 1,
+            "angle": 0,
+            "flipX": False,
+            "flipY": False,
+            "opacity": 1,
+            "shadow": None,
+            "visible": True,
+            "backgroundColor": "",
+            "fillRule": "nonzero",
+            "globalCompositeOperation": "source-over",
+            "selectable": False,
+            "evented": False,
+            "hasControls": False,
+            "hasBorders": False,
+            "src": src,
+            "filters": [],
+            "crossOrigin": ""
+        }]
+    }
+
 def pdf_bytes(c):
     buf=io.BytesIO()
     doc=SimpleDocTemplate(buf,pagesize=A4,rightMargin=32,leftMargin=32,topMargin=34,bottomMargin=34)
@@ -566,39 +613,38 @@ def damage():
             av["imagem"] = None
         base_image = vehicle_diagram(view, size=(canvas_width, canvas_height))
 
-    canvas_version = st.session_state.get(ver_key, 0)
+    # IMPORTANTE:
+    # O drawable-canvas redimensiona background_image internamente. Em alguns
+    # navegadores/Streamlit Cloud isso pode deixar a camada de desenho com
+    # coordenadas diferentes da imagem de fundo. Para evitar o deslocamento,
+    # a imagem agora faz parte do próprio Fabric.js como um objeto travado.
+    # Assim, imagem e marcações usam exatamente o mesmo sistema de coordenadas.
+    canvas_base = av.get("imagem") if av.get("imagem") and av.get("imagem_ok") else None
+    if canvas_base:
+        try:
+            canvas_image = pil_b64(canvas_base).resize(
+                (canvas_width, canvas_height), Image.Resampling.LANCZOS
+            )
+        except Exception:
+            canvas_image = base_image
+    else:
+        canvas_image = base_image
 
-    # O Streamlit Cloud pode não carregar o background_image do
-    # streamlit-drawable-canvas. Para manter o desenho visível e permitir
-    # as marcações normalmente, exibimos a imagem real por baixo e
-    # colocamos o canvas transparente exatamente sobre ela.
-    st.image(base_image, width=canvas_width)
-    st.markdown(
-        f"""
-        <style>
-        /* Coloca o canvas transparente exatamente sobre a imagem acima.
-           O transform move o componente visualmente sem deixar o espaço
-           original separado no layout do Streamlit. */
-        iframe[title="st.iframe"] {{
-            position: relative !important;
-            z-index: 50 !important;
-            transform: translateY(-{canvas_height}px) !important;
-            background: transparent !important;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    initial_drawing = canvas_image_drawing(canvas_image)
+    canvas_signature = hashlib.md5(canvas_image.tobytes()).hexdigest()[:12]
+    canvas_version = st.session_state.get(ver_key, 0)
 
     can = st_canvas(
         fill_color="rgba(0,0,0,0)",
         stroke_width=4,
         stroke_color=stroke_color,
-        background_color="rgba(0,0,0,0)",
+        background_color="#ffffff",
+        background_image=None,
         height=canvas_height,
         width=canvas_width,
         drawing_mode=draw_mode,
-        key=f"canvas_{view}_{canvas_version}",
+        initial_drawing=initial_drawing,
+        key=f"canvas_{view}_{canvas_version}_{canvas_signature}",
         display_toolbar=False,
     )
 
