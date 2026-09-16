@@ -567,11 +567,33 @@ def damage():
         base_image = vehicle_diagram(view, size=(canvas_width, canvas_height))
 
     canvas_version = st.session_state.get(ver_key, 0)
+
+    # O Streamlit Cloud pode não carregar o background_image do
+    # streamlit-drawable-canvas. Para manter o desenho visível e permitir
+    # as marcações normalmente, exibimos a imagem real por baixo e
+    # colocamos o canvas transparente exatamente sobre ela.
+    st.image(base_image, width=canvas_width)
+    st.markdown(
+        f"""
+        <style>
+        /* Sobrepõe o canvas transparente à imagem do veículo. */
+        iframe[title=\"st.iframe\"] {{
+            position: relative !important;
+            z-index: 20 !important;
+            margin-top: -{canvas_height}px !important;
+            margin-bottom: 0 !important;
+            background: transparent !important;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     can = st_canvas(
         fill_color="rgba(0,0,0,0)",
         stroke_width=4,
         stroke_color=stroke_color,
-        background_image=base_image,
+        background_color="rgba(0,0,0,0)",
         height=canvas_height,
         width=canvas_width,
         drawing_mode=draw_mode,
