@@ -506,7 +506,7 @@ def fuel():
     for col,(lab,pct) in zip(cols,FUEL_LEVELS):
         with col:
             if st.button(f"⛽ {lab}\n{pct}%",key="fuel_"+lab,use_container_width=True,type="primary" if f["nivel"]==lab else "secondary"):
-                f["nivel"]=lab; f["percentual"]=pct; save_current_state(); st.rerun()
+                f["nivel"]=lab; f["percentual"]=pct; st.rerun(scope="fragment")
     f["percentual"]=st.slider("Percentual exato",0,100,int(f["percentual"]),5);
     nav(fragment=True)
 
@@ -522,7 +522,7 @@ def accessories():
         for col,opt,label in zip(cc[:3],["sim","nao","na"],["✓ SIM","✕ NÃO","— N/A"]):
             with col:
                 if st.button(label,key=f"acc_{i}_{opt}",use_container_width=True,type="primary" if it["status"]==opt else "secondary"):
-                    it["status"]=opt; save_current_state(); st.rerun()
+                    it["status"]=opt; st.rerun(scope="fragment")
         it["obs"]=cc[3].text_input("Observação",it["obs"],key=f"accobs_{i}",label_visibility="collapsed",placeholder="Observação opcional")
         st.divider()
     nav(fragment=True)
@@ -540,7 +540,7 @@ def tires():
                 for ocol,opt in zip(oc,["Bom","Regular","Ruim"]):
                     with ocol:
                         if st.button(opt,key=f"t_{key}_{opt}",use_container_width=True,type="primary" if it["estado"]==opt else "secondary"):
-                            it["estado"]=opt; save_current_state(); st.rerun()
+                            it["estado"]=opt; st.rerun(scope="fragment")
                 it["marca"]=pick_or_type("Marca",TIRE_BRANDS,it["marca"],f"tm_{key}")
                 it["medida"]=pick_or_type("Medida",TIRE_SIZES,it["medida"],f"td_{key}")
                 it["observacao"]=st.text_input("Observação",it["observacao"],key=f"to_{key}")
@@ -594,12 +594,12 @@ def damage():
         if st.button("Arranhão", key="damage_mark_x", use_container_width=True,
                      type="primary" if st.session_state.mark_mode=="x" else "secondary"):
             st.session_state.mark_mode="x"
-            st.rerun()
+            st.rerun(scope="fragment")
     with mc2:
         if st.button("Amassado", key="damage_mark_o", use_container_width=True,
                      type="primary" if st.session_state.mark_mode=="o" else "secondary"):
             st.session_state.mark_mode="o"
-            st.rerun()
+            st.rerun(scope="fragment")
 
     if st.session_state.mark_mode=="x":
         stroke_color, draw_mode = "#ef4444", "freedraw"
