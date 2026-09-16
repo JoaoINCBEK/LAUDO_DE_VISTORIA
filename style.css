@@ -1,0 +1,691 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
+/* =========================================================
+   AUTO CHECK — STYLE.CSS ORGANIZADO
+   ========================================================= */
+
+/* =========================================================
+   1. PALETA E TEMA
+   ========================================================= */
+
+:root,
+.stApp {
+    color-scheme: light only !important;
+
+    --ac-bg: #F3F6F7;
+    --ac-surface: #FFFFFF;
+    --ac-border: #DCE3E6;
+
+    --ac-text: #1E2A2E;
+    --ac-text-soft: #4B5B60;
+    --ac-muted: #6B7A80;
+
+    --ac-teal: #3F6B72;
+    --ac-teal-dark: #17262B;
+    --ac-slate: #8FA3A8;
+
+    --ac-orange: #E08A34;
+    --ac-orange-dark: #C4711F;
+
+    --ac-sidebar-text: #F5F8F8;
+    --ac-sidebar-header-text: #F5F8F8;
+
+    --primary-color: #E08A34 !important;
+    --background-color: #F3F6F7 !important;
+    --secondary-background-color: #FFFFFF !important;
+    --text-color: #1E2A2E !important;
+}
+
+html,
+body,
+[class*="css"] {
+    font-family: Inter, system-ui, sans-serif;
+    color-scheme: light only;
+}
+
+
+/* =========================================================
+   2. FUNDO E TEXTOS GERAIS
+   ========================================================= */
+
+[data-testid="stAppViewContainer"],
+[data-testid="stAppViewContainer"] > .main,
+[data-testid="stHeader"] {
+    background: var(--ac-bg) !important;
+    color: var(--ac-text) !important;
+}
+
+[data-testid="stAppViewContainer"] h1,
+[data-testid="stAppViewContainer"] h2,
+[data-testid="stAppViewContainer"] h3,
+[data-testid="stAppViewContainer"] h4,
+[data-testid="stAppViewContainer"] h5,
+[data-testid="stAppViewContainer"] h6,
+[data-testid="stAppViewContainer"] p,
+[data-testid="stAppViewContainer"] span,
+[data-testid="stAppViewContainer"] li,
+[data-testid="stAppViewContainer"] label,
+[data-testid="stAppViewContainer"] .stMarkdown,
+[data-testid="stAppViewContainer"] .stCaption,
+[data-testid="stAppViewContainer"] .stText,
+[data-testid="stAppViewContainer"] [data-testid="stWidgetLabel"] p,
+[data-testid="stAppViewContainer"] [data-testid="stMarkdownContainer"] {
+    color: var(--ac-text) !important;
+}
+
+[data-testid="stAppViewContainer"] .stCaption,
+[data-testid="stAppViewContainer"] small {
+    color: var(--ac-text-soft) !important;
+}
+
+[data-testid="stDataFrame"] * {
+    color: var(--ac-text) !important;
+}
+
+
+/* =========================================================
+   3. ALERTAS E EXPANDERS
+   ========================================================= */
+
+[data-testid="stAlert"] {
+    background: var(--ac-surface) !important;
+    border: 1px solid var(--ac-border) !important;
+}
+
+[data-testid="stAlert"] p,
+[data-testid="stAlert"] span,
+[data-testid="stAlert"] div {
+    color: var(--ac-text) !important;
+}
+
+[data-testid="stExpander"] {
+    background: var(--ac-surface) !important;
+    border: 1px solid var(--ac-border) !important;
+    border-radius: 12px !important;
+}
+
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] p,
+[data-testid="stExpander"] span {
+    color: var(--ac-text) !important;
+}
+
+
+/* =========================================================
+   4. SIDEBAR
+   ========================================================= */
+
+[data-testid="stSidebar"] {
+    background: var(--ac-teal-dark) !important;
+}
+
+[data-testid="stSidebar"] * {
+    color: var(--ac-sidebar-text) !important;
+}
+
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"] *,
+[data-testid="stSidebar"] small {
+    color: var(--ac-sidebar-header-text) !important;
+}
+
+[data-testid="stSidebar"] div.stButton > button {
+    background: rgba(255, 255, 255, 0.06) !important;
+    border: 1px solid rgba(255, 255, 255, 0.14) !important;
+    color: var(--ac-sidebar-text) !important;
+}
+
+[data-testid="stSidebar"] div.stButton > button:hover {
+    border-color: var(--ac-orange) !important;
+}
+
+[data-testid="stSidebar"] button[kind="primary"] {
+    background: var(--ac-orange) !important;
+    color: var(--ac-sidebar-text) !important;
+    border: none !important;
+}
+
+[data-testid="stSidebar"] div.stButton > button p,
+[data-testid="stSidebar"] div.stButton > button span {
+    color: var(--ac-sidebar-text) !important;
+}
+
+
+/* =========================================================
+   5. CABEÇALHO AUTO CHECK / LAUDO
+   ========================================================= */
+
+.ac-hero {
+    background: linear-gradient(
+        135deg,
+        var(--ac-teal-dark),
+        var(--ac-teal) 65%,
+        var(--ac-orange) 170%
+    );
+
+    color: #FFFFFF !important;
+    padding: 28px 30px;
+    border-radius: 12px;
+    margin-bottom: 20px;
+    box-shadow: 0 14px 35px rgba(2, 75, 245, 0.18);
+}
+
+.ac-hero * {
+    color: #FFFFFF !important;
+}
+
+.ac-title {
+    font-size: 42px !important;
+    font-weight: 900 !important;
+    color: #FFFFFF !important;
+    line-height: 1.1 !important;
+    letter-spacing: 1px;
+    margin: 0 !important;
+}
+
+.ac-card-title {
+    font-size: 24px !important;
+    font-weight: 800 !important;
+    color: var(--ac-text) !important;
+    line-height: 1.2 !important;
+}
+
+.ac-hero .hero-sub {
+    color: #FFFFFF !important;
+}
+
+.ac-sub {
+    color: var(--ac-text) !important;
+    margin-top: 3px;
+}
+
+.ac-meta {
+    margin-top: 14px;
+    font-size: 12px;
+    color: #FFFFFF !important;
+}
+
+
+/* =========================================================
+   6. CARDS
+   ========================================================= */
+
+.ac-card {
+    background: var(--ac-surface) !important;
+    border: 1px solid var(--ac-border);
+    border-radius: 16px;
+    padding: 20px;
+}
+
+.ac-card * {
+    color: var(--ac-text) !important;
+}
+
+
+/* =========================================================
+   7. CAMPOS DE TEXTO
+   ========================================================= */
+
+.stTextInput input,
+.stTextArea textarea,
+.stNumberInput input {
+    background-color: var(--ac-surface) !important;
+    color: var(--ac-text) !important;
+    -webkit-text-fill-color: var(--ac-text) !important;
+    border: 1px solid var(--ac-border) !important;
+}
+
+.stTextInput input::placeholder,
+.stTextArea textarea::placeholder,
+.stNumberInput input::placeholder {
+    color: var(--ac-muted) !important;
+    opacity: 1 !important;
+}
+
+.stTextInput label,
+.stTextArea label,
+.stNumberInput label,
+.stSelectbox label,
+.stMultiselect label,
+.stSlider label,
+.stRadio label,
+.stCheckbox label {
+    color: var(--ac-text) !important;
+}
+
+
+/* =========================================================
+   8. SELECTBOX / MULTISELECT
+   ========================================================= */
+
+/* Campo fechado */
+.stSelectbox [data-baseweb="select"],
+.stMultiselect [data-baseweb="select"] {
+    background-color: var(--ac-surface) !important;
+    border: 1px solid var(--ac-border) !important;
+    color: var(--ac-text) !important;
+    border-radius: 8px !important;
+}
+
+.stSelectbox [data-baseweb="select"] *,
+.stMultiselect [data-baseweb="select"] * {
+    color: var(--ac-text) !important;
+}
+
+/* Texto do campo */
+.stSelectbox [data-baseweb="select"] input,
+.stSelectbox [data-baseweb="select"] div,
+.stSelectbox [data-baseweb="select"] span {
+    color: var(--ac-text) !important;
+    -webkit-text-fill-color: var(--ac-text) !important;
+}
+
+/* Menu aberto */
+div[data-baseweb="popover"],
+div[data-baseweb="popover"] > div,
+div[data-baseweb="menu"] {
+    background-color: var(--ac-surface) !important;
+    color: var(--ac-text) !important;
+}
+
+div[data-baseweb="popover"] ul,
+div[data-baseweb="popover"] li,
+div[data-baseweb="menu"] ul,
+div[data-baseweb="menu"] li {
+    background-color: var(--ac-surface) !important;
+    color: var(--ac-text) !important;
+}
+
+div[data-baseweb="popover"] li *,
+div[data-baseweb="menu"] li * {
+    color: var(--ac-text) !important;
+    -webkit-text-fill-color: var(--ac-text) !important;
+}
+
+/* Opção selecionada — azul preenchido */
+div[data-baseweb="popover"] li[aria-selected="true"],
+div[data-baseweb="popover"] li[aria-selected="true"] > div,
+div[data-baseweb="popover"] li[aria-selected="true"] > div > div,
+div[data-baseweb="popover"] li[aria-selected="true"] span,
+div[data-baseweb="popover"] li[aria-selected="true"] p,
+div[data-baseweb="menu"] li[aria-selected="true"],
+div[data-baseweb="menu"] li[aria-selected="true"] > div,
+div[data-baseweb="menu"] li[aria-selected="true"] > div > div,
+div[data-baseweb="menu"] li[aria-selected="true"] span,
+div[data-baseweb="menu"] li[aria-selected="true"] p {
+    background-color: #cdcfcf !important;
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+}
+
+/* Quando passar o mouse/dedo */
+div[data-baseweb="popover"] li:hover,
+div[data-baseweb="menu"] li:hover {
+    background-color: #E8F0F2 !important;
+    color: var(--ac-text) !important;
+    border-radius: 8px !important;
+}
+
+/* Mantém a opção selecionada azul mesmo com hover */
+div[data-baseweb="popover"] li[aria-selected="true"]:hover,
+div[data-baseweb="menu"] li[aria-selected="true"]:hover {
+    background-color: #cdcfcf !important;
+    color: #FFFFFF !important;
+}
+
+/* Arredondamento do menu */
+div[data-baseweb="popover"] {
+    border-radius: 12px !important;
+    overflow: hidden !important;
+}
+
+/* Impede o modo escuro do celular */
+.stSelectbox,
+.stSelectbox *,
+.stMultiSelect,
+.stMultiSelect * {
+    color-scheme: light !important;
+}
+
+
+/* =========================================================
+   9. MULTISELECT
+   ========================================================= */
+
+.stMultiSelect [data-baseweb="select"],
+.stMultiSelect [data-baseweb="select"] > div {
+    background-color: var(--ac-surface) !important;
+    color: var(--ac-text) !important;
+}
+
+.stMultiSelect [data-baseweb="select"] * {
+    color: var(--ac-text) !important;
+}
+
+
+/* =========================================================
+   10. RADIO E CHECKBOX
+   ========================================================= */
+
+.stRadio [role="radiogroup"] label,
+.stCheckbox label span {
+    color: var(--ac-text) !important;
+}
+
+
+/* =========================================================
+   11. BOTÕES GERAIS
+   ========================================================= */
+
+div.stButton > button {
+    background: var(--ac-surface) !important;
+    border-radius: 12px !important;
+    font-weight: 700 !important;
+    min-height: 44px !important;
+    border: 1px solid var(--ac-border) !important;
+    color: var(--ac-text) !important;
+}
+
+div.stButton > button p,
+div.stButton > button span {
+    color: var(--ac-text) !important;
+}
+
+div.stButton > button:hover {
+    border-color: var(--ac-orange) !important;
+    box-shadow: 0 5px 15px rgba(224, 138, 52, .18) !important;
+}
+
+div.stButton > button[kind="primary"] {
+    background: var(--ac-orange) !important;
+    color: #1E2A2E !important;
+    border: none !important;
+}
+
+div.stButton > button[kind="primary"] p,
+div.stButton > button[kind="primary"] span {
+    color: #1E2A2E !important;
+}
+
+button[kind="primary"]:hover {
+    background: var(--ac-orange-dark) !important;
+}
+
+
+/* =========================================================
+   12. BOTÕES DE STATUS DOS ACESSÓRIOS
+   SIM = verde | NÃO = vermelho | N/A = cinza
+   ========================================================= */
+
+/* SIM */
+div[class*="st-key-acc_"][class*="_sim"] button[kind="primary"] {
+    background: #16A34A !important;
+    border-color: #16A34A !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 0 0 2px rgba(22, 163, 74, .18) !important;
+}
+
+/* NÃO */
+div[class*="st-key-acc_"][class*="_nao"] button[kind="primary"] {
+    background: #DC2626 !important;
+    border-color: #DC2626 !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 0 0 2px rgba(220, 38, 38, .18) !important;
+}
+
+/* N/A — precisa excluir "_nao", pois "_nao" contém "_na" como substring
+   e isso fazia essa regra sobrescrever a cor do botão NÃO */
+div[class*="st-key-acc_"][class*="_na"]:not([class*="_nao"]) button[kind="primary"] {
+    background: #64748B !important;
+    border-color: #64748B !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 0 0 2px rgba(100, 116, 139, .18) !important;
+}
+
+/* Texto dos botões selecionados */
+div[class*="st-key-acc_"] button[kind="primary"] p,
+div[class*="st-key-acc_"] button[kind="primary"] span {
+    color: #FFFFFF !important;
+}
+
+/* Botões não selecionados */
+div[class*="st-key-acc_"] button[kind="secondary"] {
+    background: var(--ac-surface) !important;
+    border: 1px solid var(--ac-border) !important;
+    color: var(--ac-text) !important;
+}
+
+div[class*="st-key-acc_"] button[kind="secondary"] p,
+div[class*="st-key-acc_"] button[kind="secondary"] span {
+    color: var(--ac-text) !important;
+}
+
+
+/* =========================================================
+   12b. BOTÕES DE ESTADO DOS PNEUS (05 • Pneus)
+   BOM = verde | REGULAR = cinza | RUIM = vermelho
+   (mesmas cores usadas nos Acessórios)
+   ========================================================= */
+
+/* BOM */
+div[class*="st-key-t_"][class*="_Bom"] button[kind="primary"] {
+    background: #16A34A !important;
+    border-color: #16A34A !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 0 0 2px rgba(22, 163, 74, .18) !important;
+}
+
+/* RUIM */
+div[class*="st-key-t_"][class*="_Ruim"] button[kind="primary"] {
+    background: #DC2626 !important;
+    border-color: #DC2626 !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 0 0 2px rgba(220, 38, 38, .18) !important;
+}
+
+/* REGULAR */
+div[class*="st-key-t_"][class*="_Regular"] button[kind="primary"] {
+    background: #64748B !important;
+    border-color: #64748B !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 0 0 2px rgba(100, 116, 139, .18) !important;
+}
+
+/* Texto dos botões selecionados */
+div[class*="st-key-t_"] button[kind="primary"] p,
+div[class*="st-key-t_"] button[kind="primary"] span {
+    color: #FFFFFF !important;
+}
+
+/* Botões não selecionados */
+div[class*="st-key-t_"] button[kind="secondary"] {
+    background: var(--ac-surface) !important;
+    border: 1px solid var(--ac-border) !important;
+    color: var(--ac-text) !important;
+}
+
+div[class*="st-key-t_"] button[kind="secondary"] p,
+div[class*="st-key-t_"] button[kind="secondary"] span {
+    color: var(--ac-text) !important;
+}
+
+
+/* =========================================================
+   12c. BOTÕES DE MARCAÇÃO DE AVARIAS (06 • Avarias)
+   ARRANHÃO = verde ao ser selecionado | AMASSADO = azul ao ser selecionado
+   ========================================================= */
+
+/* ARRANHÃO ativo */
+div[class*="st-key-damage_mark_x"] button[kind="primary"] {
+    background: #e42020 !important;
+    border-color: #e42020 !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 0 0 2px rgba(182, 42, 42, 0.18) !important;
+}
+
+/* AMASSADO ativo */
+div[class*="st-key-damage_mark_o"] button[kind="primary"] {
+    background: #2563EB !important;
+    border-color: #2563EB !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, .18) !important;
+}
+
+div[class*="st-key-damage_mark_"] button[kind="primary"] p,
+div[class*="st-key-damage_mark_"] button[kind="primary"] span {
+    color: #FFFFFF !important;
+}
+
+div[class*="st-key-damage_mark_"] button[kind="secondary"] {
+    background: var(--ac-surface) !important;
+    border: 1px solid var(--ac-border) !important;
+    color: var(--ac-text) !important;
+}
+
+div[class*="st-key-damage_mark_"] button[kind="secondary"] p,
+div[class*="st-key-damage_mark_"] button[kind="secondary"] span {
+    color: var(--ac-text) !important;
+}
+
+
+/* =========================================================
+   13. MÉTRICAS
+   ========================================================= */
+
+[data-testid="stMetric"] {
+    background: var(--ac-surface) !important;
+    border: 1px solid var(--ac-border);
+    padding: 16px;
+    border-radius: 16px;
+}
+
+[data-testid="stMetric"] * {
+    color: var(--ac-text) !important;
+}
+
+
+/* =========================================================
+   14. CELULAR / MOBILE
+   ========================================================= */
+
+@media (max-width: 700px) {
+
+    .ac-hero {
+        padding: 20px;
+    }
+
+    .ac-title {
+        font-size: 34px !important;
+        font-weight: 900 !important;
+        color: #FFFFFF !important;
+        line-height: 1.1 !important;
+    }
+
+    .ac-card {
+        padding: 14px;
+        background: var(--ac-surface) !important;
+    }
+
+    .ac-card-title {
+        font-size: 22px !important;
+        font-weight: 800 !important;
+        color: var(--ac-text) !important;
+    }
+
+    .ac-sub {
+        color: var(--ac-text) !important;
+    }
+
+    .ac-hero .hero-sub {
+        color: #FFFFFF !important;
+    }
+
+    /* Selectbox no celular */
+    .stSelectbox [data-baseweb="select"],
+    .stSelectbox [data-baseweb="select"] > div {
+        background-color: #FFFFFF !important;
+        color: #1E2A2E !important;
+    }
+
+    .stSelectbox [data-baseweb="select"] span,
+    .stSelectbox [data-baseweb="select"] div,
+    .stSelectbox [data-baseweb="select"] input {
+        color: #1E2A2E !important;
+        -webkit-text-fill-color: #1E2A2E !important;
+    }
+
+    /* Menu do Selectbox no celular */
+    div[data-baseweb="popover"],
+    div[data-baseweb="menu"] {
+        background-color: #FFFFFF !important;
+        color: #1E2A2E !important;
+    }
+
+    /* Mantém a opção selecionada azul no celular */
+    div[data-baseweb="popover"] li[aria-selected="true"],
+    div[data-baseweb="popover"] li[aria-selected="true"] *,
+    div[data-baseweb="menu"] li[aria-selected="true"],
+    div[data-baseweb="menu"] li[aria-selected="true"] * {
+        background-color: #1E9DBD !important;
+        color: #FFFFFF !important;
+        -webkit-text-fill-color: #FFFFFF !important;
+    }
+}
+/* =========================================================
+   COR DAS OPÇÕES DO SELECTBOX NO CELULAR
+   ========================================================= */
+
+@media (max-width: 700px) {
+
+    /* Opção selecionada */
+    div[data-baseweb="popover"] li[aria-selected="true"],
+    div[data-baseweb="menu"] li[aria-selected="true"] {
+        background-color: #cdcfcf !important;
+        color: #FFFFFF !important;
+        border-radius: 8px !important;
+    }
+
+    /* Todo o conteúdo interno acompanha a cor */
+    div[data-baseweb="popover"] li[aria-selected="true"] *,
+    div[data-baseweb="menu"] li[aria-selected="true"] * {
+        background-color: #cdcfcf !important;
+        color: #FFFFFF !important;
+        -webkit-text-fill-color: #FFFFFF !important;
+    }
+
+    /* Quando tocar/passsar na opção */
+    div[data-baseweb="popover"] li:hover,
+    div[data-baseweb="menu"] li:hover {
+        background-color: #cdcfcf !important;
+        color: #FFFFFF !important;
+        border-radius: 8px !important;
+    }
+
+    div[data-baseweb="popover"] li:hover *,
+    div[data-baseweb="menu"] li:hover * {
+        background-color: #cdcfcf !important;
+        color: #FFFFFF !important;
+        -webkit-text-fill-color: #FFFFFF !important;
+    }
+}
+
+/* =========================================================
+   BOTÃO ABRIR/FECHAR MENU - CELULAR
+   ========================================================= */
+
+[data-testid="stSidebarCollapsedControl"] {
+    background-color: #1E2A2E !important;
+    border-radius: 8px !important;
+}
+
+[data-testid="stSidebarCollapsedControl"] button {
+    background-color: #1E2A2E !important;
+    color: #FFFFFF !important;
+    border: none !important;
+}
+
+[data-testid="stSidebarCollapsedControl"] button svg {
+    fill: #FFFFFF !important;
+    color: #FFFFFF !important;
+}

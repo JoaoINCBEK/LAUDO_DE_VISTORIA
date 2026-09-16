@@ -1,0 +1,30 @@
+AUTO CHECK / LAUDO DE VISTORIA — AVARIAS ATUALIZADAS
+
+Esta versão substitui os desenhos genéricos da etapa 06 • Avarias pelos desenhos técnicos completos enviados.
+
+Incluídos:
+- Carro / Sedan
+- Moto
+- Moto esportiva
+- Van
+- Caminhonete
+
+Cada desenho já contém lateral esquerda, lateral direita, frente, traseira e vista superior/teto.
+Por isso, a etapa 06 não possui mais botões separados para frente, trás e lados.
+
+COMO FUNCIONA
+1. Abra a etapa 06 • Avarias.
+2. Abra "Escolher desenho do veículo".
+3. Escolha o desenho correspondente ao veículo.
+4. Selecione "X — Avaria / arranhão" e desenhe um X no local.
+5. Selecione "O — Amassado" e desenhe um círculo no local.
+6. Use "Limpar desenho" para apagar as marcações e começar novamente.
+7. Preencha os detalhes e clique em "Registrar ocorrência".
+
+IMPORTANTE
+- O app.py e a pasta diagramas precisam ficar juntos.
+- A pasta diagramas já contém as imagens utilizadas pelo sistema.
+- Se você já possui autocheck_data, não apague essa pasta: ela contém os dados das inspeções.
+
+Demonstração: admin / admin123 • inspetor / inspetor123"
+    
