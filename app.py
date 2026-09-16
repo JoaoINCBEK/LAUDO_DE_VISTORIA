@@ -56,6 +56,49 @@ TIRE_SIZES = [
 _current_year = datetime.now().year
 VEHICLE_YEARS = [str(y) for y in range(_current_year + 1, 1979, -1)]
 
+
+def _force_upper(widget_key):
+    """Converte o valor do widget para MAIÚSCULAS sem conflito de estado."""
+    value = st.session_state.get(widget_key, "")
+    if isinstance(value, str):
+        st.session_state[widget_key] = value.upper()
+
+
+def upper_text_input(label, value="", key=None, **kwargs):
+    """Campo de texto que mantém o valor salvo em MAIÚSCULAS."""
+    widget_key = key or re.sub(r"\\W+", "_", label.lower())
+    current = "" if value is None else str(value)
+
+    if widget_key not in st.session_state:
+        st.session_state[widget_key] = current.upper()
+
+    st.text_input(
+        label,
+        key=widget_key,
+        on_change=_force_upper,
+        args=(widget_key,),
+        **kwargs
+    )
+    return st.session_state.get(widget_key, "").upper()
+
+
+def upper_text_area(label, value="", key=None, **kwargs):
+    """Área de texto que mantém o valor salvo em MAIÚSCULAS."""
+    widget_key = key or re.sub(r"\\W+", "_", label.lower())
+    current = "" if value is None else str(value)
+
+    if widget_key not in st.session_state:
+        st.session_state[widget_key] = current.upper()
+
+    st.text_area(
+        label,
+        key=widget_key,
+        on_change=_force_upper,
+        args=(widget_key,),
+        **kwargs
+    )
+    return st.session_state.get(widget_key, "").upper()
+
 def pick_or_type(label, options, current, key):
     """Selectbox com lista pré-definida + opção 'Outro' com campo livre."""
     outro = "Outro (digitar)"
@@ -68,7 +111,7 @@ def pick_or_type(label, options, current, key):
         idx = 0
     sel = st.selectbox(label, choices, index=idx, key=key + "_sel")
     if sel == outro:
-        return st.text_input(label + " (digite)", current if current not in options else "", key=key + "_free")
+        return upper_text_input(label + " (digite)", current if current not in options else "", key=key + "_free")
     return sel
 STEPS = [
     ("veiculo","02","Veículo"),("combustivel","03","Combustível"),("acessorios","04","Acessórios"),
@@ -490,11 +533,11 @@ def vehicle():
     
     a,b,d=st.columns(3)
     with a: v["marca"]=pick_or_type("Marca",VEHICLE_BRANDS,v["marca"],"veic_marca")
-    v["modelo"]=b.text_input("Modelo",v["modelo"]); v["placa"]=d.text_input("Placa / Renavam",v["placa"])
+    v["modelo"]=upper_text_input("Modelo",v["modelo"],key="veic_modelo"); v["placa"]=upper_text_input("Placa / Renavam",v["placa"],key="veic_placa")
     a,b,d=st.columns(3)
     with a: v["ano"]=pick_or_type("Ano",VEHICLE_YEARS,v["ano"],"veic_ano")
-    v["cor"]=b.text_input("Cor",v["cor"]).upper(); v["km"]=d.text_input("Km",v["km"])
-    v["observacoes"]=st.text_area("Observações gerais",v["observacoes"],height=90)
+    v["cor"]=upper_text_input("Cor",v["cor"],key="veic_cor"); v["km"]=upper_text_input("Km",v["km"],key="veic_km")
+    v["observacoes"]=upper_text_area("Observações gerais",v["observacoes"],key="veic_observacoes",height=90)
     nav(fragment=True)
 
 @st.fragment
@@ -523,28 +566,83 @@ def accessories():
             with col:
                 if st.button(label,key=f"acc_{i}_{opt}",use_container_width=True,type="primary" if it["status"]==opt else "secondary"):
                     it["status"]=opt; save_current_state(); st.rerun()
-        it["obs"]=cc[3].text_input("Observação",it["obs"],key=f"accobs_{i}",label_visibility="collapsed",placeholder="Observação opcional")
+        it["obs"]=upper_text_input("Observação",it["obs"],key=f"accobs_{i}",label_visibility="collapsed",placeholder="OBSERVAÇÃO OPCIONAL")
         st.divider()
     nav(fragment=True)
 
 @st.fragment
 def tires():
     c=st.session_state.inspection; topbar("05 • Pneus","Avalie os quatro pneus e o estepe.")
+
+    # O primeiro pneu serve como referência inicial.
+    # Os demais recebem a mesma marca/medida, mas continuam EDITÁVEIS.
+    first_key = TIRES[0][1]
+    first = c["pneus"][first_key]
+    sync_key = "pneus_ultima_referencia"
+    last_ref = st.session_state.get(sync_key)
+
+    # Primeira abertura: copia a marca/medida do primeiro pneu
+    # somente para os campos que ainda estiverem vazios.
+    if last_ref is None:
+        for _, other_key in TIRES[1:]:
+            other = c["pneus"][other_key]
+            if not other.get("marca"):
+                other["marca"] = first.get("marca","")
+            if not other.get("medida"):
+                other["medida"] = first.get("medida","")
+
+    # Se o primeiro pneu foi alterado, atualiza automaticamente apenas
+    # os outros pneus que ainda estavam iguais à referência anterior.
+    elif (
+        first.get("marca","") != last_ref.get("marca","") or
+        first.get("medida","") != last_ref.get("medida","")
+    ):
+        for _, other_key in TIRES[1:]:
+            other = c["pneus"][other_key]
+            if (
+                other.get("marca","") == last_ref.get("marca","") and
+                other.get("medida","") == last_ref.get("medida","")
+            ):
+                other["marca"] = first.get("marca","")
+                other["medida"] = first.get("medida","")
+
     for row in range(0,5,2):
         cols=st.columns(2)
         for col,(label,key) in zip(cols,TIRES[row:row+2]):
             with col:
                 it=c["pneus"][key]
                 st.markdown(f"### 🛞 {label}")
+
                 oc=st.columns(3)
                 for ocol,opt in zip(oc,["Bom","Regular","Ruim"]):
                     with ocol:
-                        if st.button(opt,key=f"t_{key}_{opt}",use_container_width=True,type="primary" if it["estado"]==opt else "secondary"):
-                            it["estado"]=opt; save_current_state(); st.rerun()
-                it["marca"]=pick_or_type("Marca",TIRE_BRANDS,it["marca"],f"tm_{key}")
-                it["medida"]=pick_or_type("Medida",TIRE_SIZES,it["medida"],f"td_{key}")
-                it["observacao"]=st.text_input("Observação",it["observacao"],key=f"to_{key}")
-                
+                        if st.button(
+                            opt,
+                            key=f"t_{key}_{opt}",
+                            use_container_width=True,
+                            type="primary" if it["estado"]==opt else "secondary"
+                        ):
+                            it["estado"]=opt
+                            save_current_state()
+                            st.rerun()
+
+                # Todos os pneus podem ser alterados individualmente.
+                it["marca"]=pick_or_type(
+                    "Marca", TIRE_BRANDS, it["marca"], f"tm_{key}"
+                )
+                it["medida"]=pick_or_type(
+                    "Medida", TIRE_SIZES, it["medida"], f"td_{key}"
+                )
+                it["observacao"]=upper_text_input(
+                    "Observação", it["observacao"], key=f"to_{key}"
+                )
+
+    # Guarda a referência atual do primeiro pneu para a próxima alteração.
+    st.session_state[sync_key] = {
+        "marca": c["pneus"][first_key].get("marca",""),
+        "medida": c["pneus"][first_key].get("medida","")
+    }
+
     nav(fragment=True)
 
 @st.fragment
@@ -837,7 +935,7 @@ def signature(title,key,stored):
 def owner():
     p=st.session_state.inspection["proprietario"]; topbar("08 • Proprietário","Nome, CPF, telefone e assinatura.")
     
-    a,b=st.columns(2); p["nome"]=a.text_input("Nome completo",p["nome"]); p["cpf"]=b.text_input("CPF do proprietário",p.get("cpf","")); p["telefone"]=st.text_input("Telefone de contato",p["telefone"]); p["assinatura"]=signature("Assinatura do proprietário / responsável","sig_owner",p["assinatura"])
+    a,b=st.columns(2); p["nome"]=upper_text_input("Nome completo",p["nome"],key="owner_nome"); p["cpf"]=upper_text_input("CPF do proprietário",p.get("cpf",""),key="owner_cpf"); p["telefone"]=upper_text_input("Telefone de contato",p["telefone"],key="owner_telefone"); p["assinatura"]=signature("Assinatura do proprietário / responsável","sig_owner",p["assinatura"])
     nav(fragment=True)
 
 @st.fragment
@@ -859,9 +957,9 @@ def issuer():
     else:
         st.caption("Depois de preencher, os dados poderão ser salvos para as próximas vistorias.")
 
-    a,b=st.columns(2); e["empresa"]=a.text_input("Empresa / Emitente",e["empresa"]); e["documento"]=b.text_input("CNPJ / Documento",e["documento"])
-    a,b=st.columns(2); e["telefone"]=a.text_input("Telefone",e["telefone"]); e["email"]=b.text_input("E-mail",e["email"])
-    e["endereco"]=st.text_input("Endereço",e["endereco"]); e["responsavel"]=st.text_input("Nome do responsável",e["responsavel"]); e["assinatura"]=signature("Assinatura da empresa / emitente","sig_issuer",e["assinatura"])
+    a,b=st.columns(2); e["empresa"]=upper_text_input("Empresa / Emitente",e["empresa"],key="issuer_empresa"); e["documento"]=upper_text_input("CNPJ / Documento",e["documento"],key="issuer_documento")
+    a,b=st.columns(2); e["telefone"]=upper_text_input("Telefone",e["telefone"],key="issuer_telefone"); e["email"]=b.text_input("E-mail",e["email"],key="issuer_email")
+    e["endereco"]=upper_text_input("Endereço",e["endereco"],key="issuer_endereco"); e["responsavel"]=upper_text_input("Nome do responsável",e["responsavel"],key="issuer_responsavel"); e["assinatura"]=signature("Assinatura da empresa / emitente","sig_issuer",e["assinatura"])
 
     if st.button("💾 Salvar dados da empresa para próximas vistorias", use_container_width=True):
         dados={campo:e.get(campo,"") for campo in ["empresa","documento","telefone","email","endereco","responsavel"]}
@@ -991,8 +1089,8 @@ def admin_users():
     
     with st.form("admin_create_user"):
         a,b,c=st.columns(3)
-        nu=a.text_input("Novo usuário")
-        nn=b.text_input("Nome completo")
+        nu=upper_text_input("Novo usuário",key="admin_novo_usuario")
+        nn=upper_text_input("Nome completo",key="admin_nome")
         perfil=c.selectbox("Perfil", ["Inspetor","Administrador"])
         a,b=st.columns(2)
         np=a.text_input("Senha", type="password")
