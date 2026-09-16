@@ -359,12 +359,15 @@ def save_current_state():
     token = st.query_params.get("ac_token")
     if not user or not token:
         return
+    inspection = st.session_state.get("inspection")
+    if inspection is None:
+        inspection = new_inspection()
     data = {
         "step": st.session_state.get("step", 0),
         "damage_view": st.session_state.get("damage_view", "lateral"),
         "admin_users": st.session_state.get("admin_users", False),
         "show_history": st.session_state.get("show_history", False),
-        "inspection": st.session_state.get("inspection", new_inspection())
+        "inspection": inspection
     }
     save_json(draft_path(token), data)
 
@@ -464,17 +467,22 @@ def topbar(title,subtitle):
     c=st.session_state.inspection
     st.markdown(hero_html(title, subtitle, f'📄 {c["numero"]}  •  👤 {st.session_state.user["nome"]}'), unsafe_allow_html=True)
 
-def nav():
+def nav(fragment=False):
     st.divider()
     x,y=st.columns([1,1])
     with x:
         if st.button("← Voltar",use_container_width=True,disabled=st.session_state.step<=1):
-            st.session_state.step-=1; save_current_state(); st.rerun()
+            st.session_state.step-=1
+            save_current_state()
+            st.rerun(scope="app") if fragment else st.rerun()
     with y:
         if st.session_state.step<9 and st.button("Próxima etapa →",type="primary",use_container_width=True):
-            st.session_state.step+=1; save_current_state(); st.rerun()
+            st.session_state.step+=1
+            save_current_state()
+            st.rerun(scope="app") if fragment else st.rerun()
     st.progress((st.session_state.step+1)/10)
 
+@st.fragment
 def vehicle():
     c=st.session_state.inspection; v=c["veiculo"]; topbar("02 • Informações do veículo","Tipo, identificação e dados complementares.")
     st.subheader("Informações do Veículo")
@@ -487,8 +495,9 @@ def vehicle():
     with a: v["ano"]=pick_or_type("Ano",VEHICLE_YEARS,v["ano"],"veic_ano")
     v["cor"]=b.text_input("Cor",v["cor"]).upper(); v["km"]=d.text_input("Km",v["km"])
     v["observacoes"]=st.text_area("Observações gerais",v["observacoes"],height=90)
-    nav()
+    nav(fragment=True)
 
+@st.fragment
 def fuel():
     c=st.session_state.inspection; f=c["combustivel"]; topbar("03 • Combustível","Tipo, nível e percentual exato.")
     
@@ -499,8 +508,9 @@ def fuel():
             if st.button(f"⛽ {lab}\n{pct}%",key="fuel_"+lab,use_container_width=True,type="primary" if f["nivel"]==lab else "secondary"):
                 f["nivel"]=lab; f["percentual"]=pct; save_current_state(); st.rerun()
     f["percentual"]=st.slider("Percentual exato",0,100,int(f["percentual"]),5);
-    nav()
+    nav(fragment=True)
 
+@st.fragment
 def accessories():
     c=st.session_state.inspection; topbar("04 • Acessórios","Botões rápidos para presença, ausência ou não aplicável.")
     for item in ACCESSORIES:
@@ -515,8 +525,9 @@ def accessories():
                     it["status"]=opt; save_current_state(); st.rerun()
         it["obs"]=cc[3].text_input("Observação",it["obs"],key=f"accobs_{i}",label_visibility="collapsed",placeholder="Observação opcional")
         st.divider()
-    nav()
+    nav(fragment=True)
 
+@st.fragment
 def tires():
     c=st.session_state.inspection; topbar("05 • Pneus","Avalie os quatro pneus e o estepe.")
     for row in range(0,5,2):
@@ -534,7 +545,7 @@ def tires():
                 it["medida"]=pick_or_type("Medida",TIRE_SIZES,it["medida"],f"td_{key}")
                 it["observacao"]=st.text_input("Observação",it["observacao"],key=f"to_{key}")
                 
-    nav()
+    nav(fragment=True)
 
 @st.fragment
 def damage():
@@ -723,6 +734,7 @@ def damage():
             st.rerun()
     nav()
 
+@st.fragment
 def photos():
     c=st.session_state.inspection
     topbar("07 • Fotos","Envie várias fotos e elas serão mantidas no PDF.")
@@ -810,7 +822,7 @@ def photos():
                 save_current_state()
                 st.rerun()
 
-    nav()
+    nav(fragment=True)
 
 def signature(title,key,stored):
     st.write(f"**{title}**")
@@ -821,12 +833,14 @@ def signature(title,key,stored):
     if stored: st.image(pil_b64(stored),width=360)
     return stored
 
+@st.fragment
 def owner():
     p=st.session_state.inspection["proprietario"]; topbar("08 • Proprietário","Nome, CPF, telefone e assinatura.")
     
     a,b=st.columns(2); p["nome"]=a.text_input("Nome completo",p["nome"]); p["cpf"]=b.text_input("CPF do proprietário",p.get("cpf","")); p["telefone"]=st.text_input("Telefone de contato",p["telefone"]); p["assinatura"]=signature("Assinatura do proprietário / responsável","sig_owner",p["assinatura"])
-    nav()
+    nav(fragment=True)
 
+@st.fragment
 def issuer():
     e=st.session_state.inspection["emitente"]; topbar("09 • Empresa / Emitente","Dados e assinatura que aparecerão no PDF.")
 
@@ -860,8 +874,9 @@ def issuer():
             else: emitentes.append(dados)
             save_json(ISSUERS_FILE, emitentes)
             st.success("Dados da empresa salvos para as próximas vistorias.")
-    nav()
+    nav(fragment=True)
 
+@st.fragment
 def review():
     c=st.session_state.inspection; v=c["veiculo"]; f=c["combustivel"]; topbar("10 • Revisão e emissão do PDF","Confira os dados e finalize a inspeção.")
     a,b,d,e=st.columns(4); a.metric("Veículo",f'{v["marca"]} {v["modelo"]}'.strip() or "—"); b.metric("Placa",v["placa"] or "—"); d.metric("Combustível",f'{f["percentual"]}%'); e.metric("Avarias",len(c["avarias"]["marcacoes"]))
@@ -883,7 +898,7 @@ def review():
         save_pdf_file(c["numero"], st.session_state.pdf)
         st.success("Inspeção finalizada e PDF arquivado no sistema.")
     if st.session_state.get("pdf"): st.download_button("⬇ Baixar PDF",data=st.session_state.pdf,file_name=c["numero"]+".pdf",mime="application/pdf",type="primary",use_container_width=True)
-    nav()
+    nav(fragment=True)
 
 def inicio():
     items=load_json(INSPECTIONS_FILE,[])
