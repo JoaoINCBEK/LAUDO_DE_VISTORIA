@@ -576,12 +576,13 @@ def damage():
     st.markdown(
         f"""
         <style>
-        /* Sobrepõe o canvas transparente à imagem do veículo. */
-        iframe[title=\"st.iframe\"] {{
+        /* Coloca o canvas transparente exatamente sobre a imagem acima.
+           O transform move o componente visualmente sem deixar o espaço
+           original separado no layout do Streamlit. */
+        iframe[title="st.iframe"] {{
             position: relative !important;
-            z-index: 20 !important;
-            margin-top: -{canvas_height}px !important;
-            margin-bottom: 0 !important;
+            z-index: 50 !important;
+            transform: translateY(-{canvas_height}px) !important;
             background: transparent !important;
         }}
         </style>
