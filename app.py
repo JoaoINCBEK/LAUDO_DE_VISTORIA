@@ -631,7 +631,9 @@ def damage():
         canvas_image = base_image
 
     initial_drawing = canvas_image_drawing(canvas_image)
-    canvas_signature = hashlib.md5(canvas_image.tobytes()).hexdigest()[:12]
+    # O key do canvas NÃO pode mudar a cada novo traço.
+    # Quando o key mudava usando o hash da imagem, cada traço criava um
+    # canvas novo e o traço anterior desaparecia no próximo rerun.
     canvas_version = st.session_state.get(ver_key, 0)
 
     can = st_canvas(
@@ -644,7 +646,7 @@ def damage():
         width=canvas_width,
         drawing_mode=draw_mode,
         initial_drawing=initial_drawing,
-        key=f"canvas_{view}_{canvas_version}_{canvas_signature}",
+        key=f"canvas_{view}_{canvas_version}",
         display_toolbar=False,
     )
 
