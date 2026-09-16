@@ -1,5 +1,9 @@
 streamlit==1.40.0
-streamlit-drawable-canvas==0.9.3
+
+streamlit-drawable-canvas-fix==0.9.8
+
 reportlab>=4.0
+
 Pillow>=10.0
+
 numpy>=1.26
