@@ -25,20 +25,20 @@ DRAFTS_DIR.mkdir(exist_ok=True)
 FUEL_TYPES = ["Gasolina","Etanol","Flex","Diesel","GNV","Elétrico","Híbrido"]
 FUEL_LEVELS = [("Reserva",5),("1/4",25),("1/2",50),("3/4",75),("Cheio",100)]
 ACCESSORIES = [
-    "Funciona","Segredo","Chave","Painel","Chave reserva","Manual","Quebra sol","Break light","Retrovisor",
+    "Veículo envelopado","Blindado","Funciona","Segredo","Chave","Painel","Chave reserva","Manual","Quebra sol","Break light","Retrovisor",
     "Macaco","Chave de roda","Estepe","Extintor","Triângulo","Tapetes","Isqueiro","Alto falantes","Aparelho de som",
     "Antena","Faróis auxiliares","Aerofólio","Engate traseiro","Quebra mato","Modulo (carro)","Modulo (som)",
     "Rack","Estribo","Tampão porta malas","Bateria e marca","Documento","Transferência","Nota fiscal",
     "Veículo limpo","Outros acessórios"
 ]
 TIRES = [("Dianteiro esquerdo","DE"),("Dianteiro direito","DD"),("Traseiro esquerdo","TE"),("Traseiro direito","TD"),("Estepe","ESP")]
-DAMAGE_TYPES = ["Batida","Arranhão","Amassado","Quebrado","Trincado","Outro"]
-SEVERITIES = ["Leve","Média","Grave"]
 PHOTO_SLOTS = [("frente","Frente"),("traseira","Traseira"),("lateral_esq","Lateral esquerda"),("lateral_dir","Lateral direita"),("interior","Interior"),("painel","Painel / km")]
+KEY_DOC_ITEMS = [("chave_principal","Chave principal"),("chave_reserva","Chave reserva"),("manual","Manual do veículo"),("documento","Documento do veículo")]
+KEY_DOC_ICONS = {"chave_principal":"🔑","chave_reserva":"🗝️","manual":"📘","documento":"📄"}
 
 VEHICLE_BRANDS = [
     "Chevrolet","Fiat","Ford","Volkswagen","Toyota","Honda","Hyundai","Renault","Nissan","Jeep",
-    "Peugeot","Citroën","Mitsubishi","Kia","BMW","Mercedes-Benz","Audi","Volvo","Land Rover",
+    "Peugeot","Citroën","Mitsubishi","Kia","BMW","BYD","Geely","GWM","Mercedes-Benz","Audi","Volvo","Land Rover",
     "Suzuki","Yamaha","Kawasaki","Triumph","Harley-Davidson","Iveco","Scania","Volvo Trucks",
     "Mercedes-Benz Caminhões","Agrale","Troller","RAM","Chery/Caoa"
 ]
@@ -46,58 +46,9 @@ TIRE_BRANDS = [
     "Pirelli","Goodyear","Michelin","Continental","Bridgestone","Firestone","Dunlop",
     "General Tire","Yokohama","Maxxis","Hankook","Kumho","Cooper","Nexen"
 ]
-TIRE_SIZES = [
-    "165/70 R13","175/65 R14","175/70 R13","185/60 R15","185/65 R14","185/65 R15",
-    "195/55 R15","195/60 R15","195/60 R16","195/65 R15","205/55 R16","205/60 R16",
-    "205/65 R15","215/45 R17","215/50 R17","215/55 R17","215/60 R16","225/45 R17",
-    "225/45 R18","225/50 R17","225/55 R18","235/40 R19","235/45 R19","245/40 R20",
-    "265/50 R20","275/60 R20"
-]
+
 _current_year = datetime.now().year
 VEHICLE_YEARS = [str(y) for y in range(_current_year + 1, 1979, -1)]
-
-
-def _force_upper(widget_key):
-    """Converte o valor do widget para MAIÚSCULAS sem conflito de estado."""
-    value = st.session_state.get(widget_key, "")
-    if isinstance(value, str):
-        st.session_state[widget_key] = value.upper()
-
-
-def upper_text_input(label, value="", key=None, **kwargs):
-    """Campo de texto que mantém o valor salvo em MAIÚSCULAS."""
-    widget_key = key or re.sub(r"\\W+", "_", label.lower())
-    current = "" if value is None else str(value)
-
-    if widget_key not in st.session_state:
-        st.session_state[widget_key] = current.upper()
-
-    st.text_input(
-        label,
-        key=widget_key,
-        on_change=_force_upper,
-        args=(widget_key,),
-        **kwargs
-    )
-    return st.session_state.get(widget_key, "").upper()
-
-
-def upper_text_area(label, value="", key=None, **kwargs):
-    """Área de texto que mantém o valor salvo em MAIÚSCULAS."""
-    widget_key = key or re.sub(r"\\W+", "_", label.lower())
-    current = "" if value is None else str(value)
-
-    if widget_key not in st.session_state:
-        st.session_state[widget_key] = current.upper()
-
-    st.text_area(
-        label,
-        key=widget_key,
-        on_change=_force_upper,
-        args=(widget_key,),
-        **kwargs
-    )
-    return st.session_state.get(widget_key, "").upper()
 
 def pick_or_type(label, options, current, key):
     """Selectbox com lista pré-definida + opção 'Outro' com campo livre."""
@@ -111,12 +62,13 @@ def pick_or_type(label, options, current, key):
         idx = 0
     sel = st.selectbox(label, choices, index=idx, key=key + "_sel")
     if sel == outro:
-        return upper_text_input(label + " (digite)", current if current not in options else "", key=key + "_free")
+        return st.text_input(label + " (digite)", current if current not in options else "", key=key + "_free")
     return sel
 STEPS = [
-    ("veiculo","02","Veículo"),("combustivel","03","Combustível"),("acessorios","04","Acessórios"),
-    ("pneus","05","Pneus"),("avarias","06","Avarias"),("fotos","07","Fotos"),
-    ("proprietario","08","Proprietário"),("emitente","09","Emitente"),("revisao","10","Revisão / PDF")
+    ("veiculo","02","Veículo"),("combustivel","03","Combustível"),
+    ("chave_documentos","04","Chave e Documentos"),("acessorios","05","Acessórios"),
+    ("pneus","06","Pneus"),("avarias","07","Avarias"),("fotos","08","Fotos"),
+    ("proprietario","09","Proprietário"),("emitente","10","Emitente"),("revisao","11","Revisão / PDF")
 ]
 
 def load_json(path, default):
@@ -162,15 +114,31 @@ def new_inspection():
     return {
         "numero": next_inspection_number(),
         "criado_em": now(), "finalizado_em": None, "status":"Em andamento", "inspetor":"",
-        "veiculo": {"tipo":"sedan","marca":"","modelo":"","ano":"","placa":"","cor":"","chassi":"","km":"","observacoes":""},
+        "veiculo": {"marca":"","modelo":"","ano":"","placa":"","cor":"","chassi":"","km":"","observacoes":""},
         "combustivel":{"tipo":"Gasolina","nivel":"1/2","percentual":50},
         "acessorios":{a:{"status":"","obs":""} for a in ACCESSORIES},
+        "chave_documentos":{"foto": None},
         "pneus":{k:{"estado":"","marca":"","medida":"","observacao":""} for _,k in TIRES},
         "avarias":{"diagrama":None,"imagem":None,"marcacoes":[]},
         "fotos":{}, "fotos_acessorios":[],
         "proprietario":{"nome":"","cpf":"","telefone":"","assinatura":None},
         "emitente":{"empresa":"","documento":"","telefone":"","email":"","endereco":"","responsavel":"","assinatura":None}
     }
+
+def normalize_tires(inspection):
+    """Remove campos antigos de medida/observação individual dos pneus."""
+    for it in inspection.get("pneus", {}).values():
+        it.pop("medida", None)
+        it.pop("observacao", None)
+    inspection.setdefault("pneus_observacao", "")
+    kd = inspection.setdefault("chave_documentos", {"foto": None})
+    if "foto" not in kd:
+        kd["foto"] = next((v for v in kd.values() if v), None)
+        inspection["chave_documentos"] = {"foto": kd["foto"]}
+    else:
+        inspection["chave_documentos"] = {"foto": kd.get("foto")}
+    return inspection
+
 
 def b64_image(upload):
     if upload is None: return None
@@ -251,7 +219,7 @@ def compose_canvas_image(canvas, background):
     oa = np.zeros((h, w, 4), dtype=np.uint8)
     oa[:, :, :3] = arr[:, :, :3]
     oa[:, :, 3] = np.where(mark, 255, 0).astype(np.uint8)
-    overlay = Image.fromarray(oa, "RGBA")
+    overlay = Image.fromarray(oa)
     return Image.alpha_composite(bg, overlay).convert("RGB")
 
 def canvas_b64(canvas, background=None):
@@ -327,11 +295,11 @@ def pdf_bytes(c):
     if ar:
         t=Table([["Item","Situação","Observação"]]+ar,colWidths=[180,90,240]); t.setStyle(TableStyle([("GRID",(0,0),(-1,-1),.3,colors.HexColor("#e2e8f0")),("BACKGROUND",(0,0),(-1,0),colors.HexColor("#111827")),("TEXTCOLOR",(0,0),(-1,0),colors.white),("FONTSIZE",(0,0),(-1,-1),8),("PADDING",(0,0),(-1,-1),5)])); story.append(t)
     story.append(Paragraph("4. Pneus",ss["Sec"]))
-    labels={k:n for n,k in TIRES}; tr=[["Posição","Estado","Marca","Medida","Observação"]]+[[labels.get(k,k),it.get("estado",""),it.get("marca",""),it.get("medida",""),it.get("observacao","")] for k,it in c["pneus"].items()]
-    t=Table(tr,colWidths=[115,70,100,90,135]); t.setStyle(TableStyle([("GRID",(0,0),(-1,-1),.3,colors.HexColor("#e2e8f0")),("BACKGROUND",(0,0),(-1,0),colors.HexColor("#111827")),("TEXTCOLOR",(0,0),(-1,0),colors.white),("FONTSIZE",(0,0),(-1,-1),7.5),("PADDING",(0,0),(-1,-1),4)])); story.append(t)
+    labels={k:n for n,k in TIRES}; tr=[["Posição","Estado","Marca"]]+[[labels.get(k,k),it.get("estado",""),it.get("marca","")] for k,it in c["pneus"].items()]
+    t=Table(tr,colWidths=[150,100,180]); t.setStyle(TableStyle([("GRID",(0,0),(-1,-1),.3,colors.HexColor("#e2e8f0")),("BACKGROUND",(0,0),(-1,0),colors.HexColor("#111827")),("TEXTCOLOR",(0,0),(-1,0),colors.white),("FONTSIZE",(0,0),(-1,-1),7.5),("PADDING",(0,0),(-1,-1),4)])); story.append(t)
     story.append(PageBreak()); story.append(Paragraph("5. Avarias",ss["Sec"]))
     av=c["avarias"]
-    story.append(Paragraph(f'Desenho utilizado: {(av.get("diagrama") or "sedan").title()} — {len(av["marcacoes"])} ocorrência(s)',ss["Sm"]))
+    story.append(Paragraph(f'Desenho utilizado: {(av.get("diagrama") or "sedan").title()}',ss["Sm"]))
     if av.get("imagem"):
         try:
             im=pil_b64(av["imagem"]); out=io.BytesIO(); im.save(out,"PNG"); out.seek(0); story.append(RLImage(out,width=360,height=256))
@@ -363,6 +331,23 @@ def pdf_bytes(c):
                 im.save(out,"JPEG",quality=90)
                 out.seek(0)
                 story.append(Paragraph(f"Acessório {i}",ss["Sm"]))
+                story.append(RLImage(out,width=230,height=172))
+                story.append(Spacer(1,6))
+            except Exception:
+                pass
+
+    kd_items=[("Chave e Documentos", c.get("chave_documentos",{}).get("foto"))]
+    kd_items=[(name,b64) for name,b64 in kd_items if b64]
+    if kd_items:
+        story.append(Paragraph("Chave e Documentos",ss["Sm"]))
+        for name,b64 in kd_items:
+            try:
+                im=pil_b64(b64)
+                im.thumbnail((900,700))
+                out=io.BytesIO()
+                im.save(out,"JPEG",quality=90)
+                out.seek(0)
+                story.append(Paragraph(name,ss["Sm"]))
                 story.append(RLImage(out,width=230,height=172))
                 story.append(Spacer(1,6))
             except Exception:
@@ -426,7 +411,7 @@ def load_current_state(user):
     st.session_state.admin_users = bool(data.get("admin_users", False))
     st.session_state.show_history = bool(data.get("show_history", False))
     if data.get("inspection"):
-        st.session_state.inspection = data["inspection"]
+        st.session_state.inspection = normalize_tires(data["inspection"])
     return True
 
 def clear_login_session():
@@ -449,7 +434,7 @@ if "user" not in st.session_state:
     st.session_state.user = restore_login_session()
     st.session_state._restored_state = False
 if "step" not in st.session_state: st.session_state.step = 0
-if "inspection" not in st.session_state: st.session_state.inspection = new_inspection()
+if "inspection" not in st.session_state: st.session_state.inspection = normalize_tires(new_inspection())
 if "damage_view" not in st.session_state: st.session_state.damage_view = None
 if "mark_mode" not in st.session_state: st.session_state.mark_mode = "x"
 if "admin_users" not in st.session_state: st.session_state.admin_users = False
@@ -476,7 +461,6 @@ def login_screen():
                     st.session_state.show_history=False
                     st.session_state.inspection=new_inspection()
                     create_login_session(found)
-                    save_current_state()
                     save_current_state(); st.rerun()
                 else:
                     st.error("Usuário ou senha inválidos.")
@@ -519,25 +503,24 @@ def nav(fragment=False):
             save_current_state()
             st.rerun(scope="app") if fragment else st.rerun()
     with y:
-        if st.session_state.step<9 and st.button("Próxima etapa →",type="primary",use_container_width=True):
+        if st.session_state.step<len(STEPS) and st.button("Próxima etapa →",type="primary",use_container_width=True):
             st.session_state.step+=1
             save_current_state()
             st.rerun(scope="app") if fragment else st.rerun()
-    st.progress((st.session_state.step+1)/10)
+    st.progress((st.session_state.step+1)/(len(STEPS)+1))
 
 @st.fragment
 def vehicle():
     c=st.session_state.inspection; v=c["veiculo"]; topbar("02 • Informações do veículo","Tipo, identificação e dados complementares.")
     st.subheader("Informações do Veículo")
-    cols=st.columns(6)
-    
+
     a,b,d=st.columns(3)
     with a: v["marca"]=pick_or_type("Marca",VEHICLE_BRANDS,v["marca"],"veic_marca")
-    v["modelo"]=upper_text_input("Modelo",v["modelo"],key="veic_modelo"); v["placa"]=upper_text_input("Placa / Renavam",v["placa"],key="veic_placa")
+    v["modelo"]=b.text_input("Modelo",v["modelo"]); v["placa"]=d.text_input("Placa / Renavam",v["placa"])
     a,b,d=st.columns(3)
     with a: v["ano"]=pick_or_type("Ano",VEHICLE_YEARS,v["ano"],"veic_ano")
-    v["cor"]=upper_text_input("Cor",v["cor"],key="veic_cor"); v["km"]=upper_text_input("Km",v["km"],key="veic_km")
-    v["observacoes"]=upper_text_area("Observações gerais",v["observacoes"],key="veic_observacoes",height=90)
+    v["cor"]=b.text_input("Cor",v["cor"]).upper(); v["km"]=d.text_input("Km",v["km"])
+    v["observacoes"]=st.text_area("Observações gerais",v["observacoes"],height=90)
     nav(fragment=True)
 
 @st.fragment
@@ -554,8 +537,47 @@ def fuel():
     nav(fragment=True)
 
 @st.fragment
+def key_documents():
+    c=st.session_state.inspection
+    topbar("04 • Chave e Documentos","Tire uma única foto da chave e dos documentos.")
+    c.setdefault("chave_documentos", {"foto": None})
+    kd=c["chave_documentos"]
+
+    usar_cam=st.checkbox(
+        "Usar câmera direta do navegador (avançado, requer permissão)",
+        value=st.session_state.get("usar_cam_navegador", False),
+        key="usar_cam_navegador"
+    )
+
+    
+    st.markdown('<div class="ac-photo-card-title">📷 Chave e Documentos</div>', unsafe_allow_html=True)
+
+    if kd.get("foto"):
+        st.image(pil_b64(kd["foto"]), use_container_width=True)
+        if st.button("🗑️ Remover foto", key="remove_kd_unica", use_container_width=True):
+            kd["foto"]=None
+            save_current_state()
+            st.rerun()
+    else:
+        src=None
+        if usar_cam:
+            src=st.camera_input("Tirar foto", key="kdcam_unica", label_visibility="collapsed")
+        if src is None:
+            src=st.file_uploader("Tirar", type=["jpg","jpeg","png","webp"], key="kd_unica", label_visibility="collapsed")
+        if src is not None:
+            try:
+                kd["foto"]=b64_image(src)
+                save_current_state()
+                st.rerun()
+            except Exception:
+                st.error("Não foi possível salvar a foto.")
+
+    
+    nav(fragment=True)
+
+@st.fragment
 def accessories():
-    c=st.session_state.inspection; topbar("04 • Acessórios","Botões rápidos para presença, ausência ou não aplicável.")
+    c=st.session_state.inspection; topbar("05 • Acessórios","Botões rápidos para presença, ausência ou não aplicável.")
     for item in ACCESSORIES:
         c["acessorios"].setdefault(item, {"status":"","obs":""})
     
@@ -566,89 +588,125 @@ def accessories():
             with col:
                 if st.button(label,key=f"acc_{i}_{opt}",use_container_width=True,type="primary" if it["status"]==opt else "secondary"):
                     it["status"]=opt; save_current_state(); st.rerun()
-        it["obs"]=upper_text_input("Observação",it["obs"],key=f"accobs_{i}",label_visibility="collapsed",placeholder="OBSERVAÇÃO OPCIONAL")
+        it["obs"]=cc[3].text_input("Observação",it["obs"],key=f"accobs_{i}",label_visibility="collapsed",placeholder="Observação opcional")
         st.divider()
     nav(fragment=True)
 
 @st.fragment
 def tires():
-    c=st.session_state.inspection; topbar("05 • Pneus","Avalie os quatro pneus e o estepe.")
+    c=st.session_state.inspection
+    topbar("06 • Pneus","Estado e marca dos pneus.")
 
-    # O primeiro pneu serve como referência inicial.
-    # Os demais recebem a mesma marca/medida, mas continuam EDITÁVEIS.
+    # Primeiro pneu: a escolha da marca dele vira a marca padrão.
     first_key = TIRES[0][1]
-    first = c["pneus"][first_key]
-    sync_key = "pneus_ultima_referencia"
-    last_ref = st.session_state.get(sync_key)
+    first_it = c["pneus"][first_key]
 
-    # Primeira abertura: copia a marca/medida do primeiro pneu
-    # somente para os campos que ainda estiverem vazios.
-    if last_ref is None:
-        for _, other_key in TIRES[1:]:
-            other = c["pneus"][other_key]
-            if not other.get("marca"):
-                other["marca"] = first.get("marca","")
-            if not other.get("medida"):
-                other["medida"] = first.get("medida","")
-
-    # Se o primeiro pneu foi alterado, atualiza automaticamente apenas
-    # os outros pneus que ainda estavam iguais à referência anterior.
-    elif (
-        first.get("marca","") != last_ref.get("marca","") or
-        first.get("medida","") != last_ref.get("medida","")
-    ):
-        for _, other_key in TIRES[1:]:
-            other = c["pneus"][other_key]
-            if (
-                other.get("marca","") == last_ref.get("marca","") and
-                other.get("medida","") == last_ref.get("medida","")
+    st.markdown(f"### 🛞 {TIRES[0][0]}")
+    oc=st.columns(3)
+    for ocol,opt in zip(oc,["Bom","Regular","Ruim"]):
+        with ocol:
+            if st.button(
+                opt,
+                key=f"t_{first_key}_{opt}",
+                use_container_width=True,
+                type="primary" if first_it.get("estado") == opt else "secondary",
             ):
-                other["marca"] = first.get("marca","")
-                other["medida"] = first.get("medida","")
+                first_it["estado"] = opt
+                save_current_state()
+                st.rerun()
 
-    for row in range(0,5,2):
-        cols=st.columns(2)
-        for col,(label,key) in zip(cols,TIRES[row:row+2]):
-            with col:
-                it=c["pneus"][key]
-                st.markdown(f"### 🛞 {label}")
+    # A primeira marca da lista aparece pré-selecionada por padrão; a opção de
+    # não informar marca fica visível por último, em vez de aparecer em branco.
+    brand_choices = TIRE_BRANDS + ["Outro (digitar)", "Nenhuma / não informar"]
+    current_brand = first_it.get("marca","")
+    if current_brand in TIRE_BRANDS:
+        brand_index = brand_choices.index(current_brand)
+    elif current_brand:
+        brand_index = brand_choices.index("Outro (digitar)")
+    else:
+        brand_index = 0
 
-                oc=st.columns(3)
-                for ocol,opt in zip(oc,["Bom","Regular","Ruim"]):
-                    with ocol:
-                        if st.button(
-                            opt,
-                            key=f"t_{key}_{opt}",
-                            use_container_width=True,
-                            type="primary" if it["estado"]==opt else "secondary"
-                        ):
-                            it["estado"]=opt
-                            save_current_state()
-                            st.rerun()
+    selected = st.selectbox(
+        "Marca",
+        brand_choices,
+        index=brand_index,
+        key=f"tm_{first_key}_sel"
+    )
+    if selected == "Outro (digitar)":
+        first_it["marca"] = st.text_input(
+            "Marca (digite)",
+            current_brand if current_brand not in TIRE_BRANDS else "",
+            key=f"tm_{first_key}_free"
+        )
+    elif selected == "Nenhuma / não informar":
+        first_it["marca"] = ""
+    else:
+        first_it["marca"] = selected
 
-                # Todos os pneus podem ser alterados individualmente.
-                it["marca"]=pick_or_type(
-                    "Marca", TIRE_BRANDS, it["marca"], f"tm_{key}"
-                )
-                it["medida"]=pick_or_type(
-                    "Medida", TIRE_SIZES, it["medida"], f"td_{key}"
-                )
-                it["observacao"]=upper_text_input(
-                    "Observação", it["observacao"], key=f"to_{key}"
-                )
+    first_brand = first_it.get("marca","")
 
-    # Guarda a referência atual do primeiro pneu para a próxima alteração.
-    st.session_state[sync_key] = {
-        "marca": c["pneus"][first_key].get("marca",""),
-        "medida": c["pneus"][first_key].get("medida","")
-    }
+    # Demais pneus: recebem a marca do primeiro automaticamente quando
+    # ainda não possuem uma marca. Depois disso continuam independentes.
+    for label,key in TIRES[1:]:
+        it=c["pneus"][key]
 
+        if first_brand and not it.get("marca"):
+            it["marca"] = first_brand
+
+        st.markdown(f"### 🛞 {label}")
+        oc=st.columns(3)
+        for ocol,opt in zip(oc,["Bom","Regular","Ruim"]):
+            with ocol:
+                if st.button(
+                    opt,
+                    key=f"t_{key}_{opt}",
+                    use_container_width=True,
+                    type="primary" if it.get("estado") == opt else "secondary",
+                ):
+                    it["estado"] = opt
+                    save_current_state()
+                    st.rerun()
+
+        current_brand = it.get("marca","")
+        if current_brand in TIRE_BRANDS:
+            brand_index = brand_choices.index(current_brand)
+        elif current_brand:
+            brand_index = brand_choices.index("Outro (digitar)")
+        else:
+            brand_index = 0
+
+        selected = st.selectbox(
+            "Marca",
+            brand_choices,
+            index=brand_index,
+            key=f"tm_{key}_sel"
+        )
+        if selected == "Outro (digitar)":
+            it["marca"] = st.text_input(
+                "Marca (digite)",
+                current_brand if current_brand not in TIRE_BRANDS else "",
+                key=f"tm_{key}_free"
+            )
+        elif selected == "Nenhuma / não informar":
+            it["marca"] = ""
+        else:
+            it["marca"] = selected
+
+    c["pneus_observacao"] = st.text_area(
+        "Observação",
+        c.get("pneus_observacao", ""),
+        key="pneus_observacao",
+        height=100,
+        placeholder="Digite uma observação sobre os pneus..."
+    )
+
+    # Navegação da etapa 06
     nav(fragment=True)
 
-@st.fragment
+
 def damage():
     c=st.session_state.inspection; av=c["avarias"]
-    topbar("06 • Avarias","Marque arranhões/avarias com vermelho e amassados com azul direto no desenho do veículo.")
+    topbar("07 • Avarias","Marque arranhões/avarias com vermelho e amassados com azul direto no desenho do veículo.")
 
     if not st.session_state.get("damage_view"):
         st.session_state.damage_view = av.get("diagrama") or c["veiculo"].get("tipo") or "sedan"
@@ -771,15 +829,68 @@ def damage():
 
         # Só registra um novo estado quando houve uma alteração real.
         if new_image and new_image != old_image:
-            if old_image:
-                history = st.session_state[hist_key]
-                if not history or history[-1] != old_image:
-                    history.append(old_image)
-                    if len(history) > 30:
-                        del history[0]
+            history = st.session_state[hist_key]
+            if not history or history[-1] != old_image:
+                history.append(old_image)
+                if len(history) > 30:
+                    del history[0]
             st.session_state[redo_key] = []
             av["imagem"] = new_image
             av["imagem_ok"] = True
+
+            # Sincroniza as ocorrências com os traços existentes no Fabric.js.
+            # A imagem final sozinha não informa quantas marcações foram feitas,
+            # por isso usamos os objetos do canvas para alimentar o resumo/PDF.
+            try:
+                drawing = can.json_data or {}
+                objects = drawing.get("objects", []) if isinstance(drawing, dict) else []
+                marcacoes = []
+                for obj in objects:
+                    if obj.get("type") != "path":
+                        continue
+                    stroke = str(obj.get("stroke", "")).lower()
+                    tipo = "Arranhão" if stroke in ("#ef4444", "rgb(239, 68, 68)") else "Amassado"
+                    marcacoes.append({
+                        "tipo": tipo,
+                        "severidade": "Marcada",
+                        "descricao": "Avaria indicada no desenho do veículo.",
+                    })
+                # Se o canvas atual não devolver os objetos (por exemplo,
+                # ao abrir uma inspeção já salva), conta as marcações pela
+                # presença dos traços vermelho/azul na imagem final.
+                if not marcacoes and av.get("imagem"):
+                    try:
+                        img = np.array(pil_b64(av["imagem"]).convert("RGB"))
+                        rr, gg, bb = img[:, :, 0], img[:, :, 1], img[:, :, 2]
+                        red = (rr > 140) & (rr > gg + 45) & (rr > bb + 45)
+                        blue = (bb > 120) & (bb > rr + 35) & (bb > gg + 20)
+                        mark = red | blue
+
+                        # Conta grupos de pixels conectados. Cada X/O desenhado
+                        # normalmente forma um grupo, sem contar o desenho do carro.
+                        try:
+                            from scipy import ndimage
+                            labels, total = ndimage.label(mark)
+                            sizes = np.bincount(labels.ravel())[1:]
+                            total = int(np.sum(sizes >= 8))
+                        except Exception:
+                            total = 1 if int(mark.sum()) >= 8 else 0
+
+                        av["marcacoes"] = [
+                            {
+                                "tipo": "Avaria",
+                                "severidade": "Marcada",
+                                "descricao": "Avaria indicada no desenho do veículo.",
+                            }
+                            for _ in range(total)
+                        ]
+                    except Exception:
+                        pass
+
+                av["marcacoes"] = marcacoes if marcacoes else av.get("marcacoes", [])
+            except Exception:
+                pass
+
             # Não gravamos o rascunho em disco a cada traço. Isso adicionava
             # uma operação pesada ao rerun e aumentava o atraso visual.
             # A navegação, desfazer/refazer e limpeza continuam salvando o estado.
@@ -795,7 +906,7 @@ def damage():
                 st.session_state[redo_key].append(current)
             previous = st.session_state[hist_key].pop()
             av["imagem"] = previous
-            av["imagem_ok"] = True
+            av["imagem_ok"] = previous is not None
             st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
             st.session_state.pop(f"canvas_initial_{view}_{st.session_state[ver_key]}", None)
             save_current_state()
@@ -809,7 +920,7 @@ def damage():
                 st.session_state[hist_key].append(current)
             restored = st.session_state[redo_key].pop()
             av["imagem"] = restored
-            av["imagem_ok"] = True
+            av["imagem_ok"] = restored is not None
             st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
             st.session_state.pop(f"canvas_initial_{view}_{st.session_state[ver_key]}", None)
             save_current_state()
@@ -835,7 +946,7 @@ def damage():
 @st.fragment
 def photos():
     c=st.session_state.inspection
-    topbar("07 • Fotos","Envie várias fotos e elas serão mantidas no PDF.")
+    topbar("08 • Fotos","Envie várias fotos e elas serão mantidas no PDF.")
 
     st.caption("No celular, use a câmera ou a galeria. Cada posição abaixo guarda sua própria foto.")
 
@@ -845,7 +956,7 @@ def photos():
 
     usar_camera_navegador = st.checkbox(
         "Usar câmera direta do navegador (avançado, requer permissão)",
-        value=False,
+        value=st.session_state.get("usar_cam_navegador", False),
         key="usar_cam_navegador"
     )
 
@@ -854,30 +965,8 @@ def photos():
 
         for col,(key,label) in zip(cols,PHOTO_SLOTS[row:row+2]):
             with col:
-                st.markdown(f"### 📷 {label}")
-
-                up=st.file_uploader(
-                    f"Enviar foto — {label}",
-                    type=["jpg","jpeg","png","webp"],
-                    key="up_"+key
-                )
-
-                src=up
-
-                if usar_camera_navegador:
-                    cam=st.camera_input(
-                        f"Câmera do navegador — {label}",
-                        key="cam_"+key
-                    )
-                    if cam is not None:
-                        src=cam
-
-                if src is not None:
-                    try:
-                        c["fotos"][key]=b64_image(src)
-                        save_current_state()
-                    except Exception:
-                        st.error(f"Não foi possível salvar a foto: {label}")
+                
+                st.markdown(f'<div class="ac-photo-card-title">📷 {label}</div>', unsafe_allow_html=True)
 
                 if c["fotos"].get(key):
                     st.image(
@@ -892,14 +981,41 @@ def photos():
                         c["fotos"].pop(key, None)
                         save_current_state()
                         st.rerun()
+                else:
+                    src=None
+                    if usar_camera_navegador:
+                        src=st.camera_input(
+                            f"Câmera do navegador — {label}",
+                            key="cam_"+key,
+                            label_visibility="collapsed"
+                        )
+                    if src is None:
+                        src=st.file_uploader(
+                            f"Enviar foto — {label}",
+                            type=["jpg","jpeg","png","webp"],
+                            key="up_"+key,
+                            label_visibility="collapsed"
+                        )
 
-    st.markdown("### 📦 Fotos de acessórios")
+                    if src is not None:
+                        try:
+                            c["fotos"][key]=b64_image(src)
+                            save_current_state()
+                            st.rerun()
+                        except Exception:
+                            st.error(f"Não foi possível salvar a foto: {label}")
+
+                
+
+    
+    st.markdown('<div class="ac-photo-card-title">📦 Fotos de acessórios</div>', unsafe_allow_html=True)
 
     ex=st.file_uploader(
         "Selecione uma ou várias fotos dos acessórios",
         type=["jpg","jpeg","png","webp"],
         accept_multiple_files=True,
-        key="extras"
+        key="extras",
+        label_visibility="collapsed"
     )
 
     if ex:
@@ -920,6 +1036,8 @@ def photos():
                 save_current_state()
                 st.rerun()
 
+    
+
     nav(fragment=True)
 
 def signature(title,key,stored):
@@ -933,14 +1051,14 @@ def signature(title,key,stored):
 
 @st.fragment
 def owner():
-    p=st.session_state.inspection["proprietario"]; topbar("08 • Proprietário","Nome, CPF, telefone e assinatura.")
+    p=st.session_state.inspection["proprietario"]; topbar("09 • Proprietário","Nome, CPF, telefone e assinatura.")
     
-    a,b=st.columns(2); p["nome"]=upper_text_input("Nome completo",p["nome"],key="owner_nome"); p["cpf"]=upper_text_input("CPF do proprietário",p.get("cpf",""),key="owner_cpf"); p["telefone"]=upper_text_input("Telefone de contato",p["telefone"],key="owner_telefone"); p["assinatura"]=signature("Assinatura do proprietário / responsável","sig_owner",p["assinatura"])
+    a,b=st.columns(2); p["nome"]=a.text_input("Nome completo",p["nome"]); p["cpf"]=b.text_input("CPF do proprietário",p.get("cpf","")); p["telefone"]=st.text_input("Telefone de contato",p["telefone"]); p["assinatura"]=signature("Assinatura do proprietário / responsável","sig_owner",p["assinatura"])
     nav(fragment=True)
 
 @st.fragment
 def issuer():
-    e=st.session_state.inspection["emitente"]; topbar("09 • Empresa / Emitente","Dados e assinatura que aparecerão no PDF.")
+    e=st.session_state.inspection["emitente"]; topbar("10 • Empresa / Emitente","Dados e assinatura que aparecerão no PDF.")
 
     saved_emitentes=load_json(ISSUERS_FILE, [])
     if saved_emitentes:
@@ -957,9 +1075,9 @@ def issuer():
     else:
         st.caption("Depois de preencher, os dados poderão ser salvos para as próximas vistorias.")
 
-    a,b=st.columns(2); e["empresa"]=upper_text_input("Empresa / Emitente",e["empresa"],key="issuer_empresa"); e["documento"]=upper_text_input("CNPJ / Documento",e["documento"],key="issuer_documento")
-    a,b=st.columns(2); e["telefone"]=upper_text_input("Telefone",e["telefone"],key="issuer_telefone"); e["email"]=b.text_input("E-mail",e["email"],key="issuer_email")
-    e["endereco"]=upper_text_input("Endereço",e["endereco"],key="issuer_endereco"); e["responsavel"]=upper_text_input("Nome do responsável",e["responsavel"],key="issuer_responsavel"); e["assinatura"]=signature("Assinatura da empresa / emitente","sig_issuer",e["assinatura"])
+    a,b=st.columns(2); e["empresa"]=a.text_input("Empresa / Emitente",e["empresa"]); e["documento"]=b.text_input("CNPJ / Documento",e["documento"])
+    a,b=st.columns(2); e["telefone"]=a.text_input("Telefone",e["telefone"]); e["email"]=b.text_input("E-mail",e["email"])
+    e["endereco"]=st.text_input("Endereço",e["endereco"]); e["responsavel"]=st.text_input("Nome do responsável",e["responsavel"]); e["assinatura"]=signature("Assinatura da empresa / emitente","sig_issuer",e["assinatura"])
 
     if st.button("💾 Salvar dados da empresa para próximas vistorias", use_container_width=True):
         dados={campo:e.get(campo,"") for campo in ["empresa","documento","telefone","email","endereco","responsavel"]}
@@ -976,14 +1094,15 @@ def issuer():
 
 @st.fragment
 def review():
-    c=st.session_state.inspection; v=c["veiculo"]; f=c["combustivel"]; topbar("10 • Revisão e emissão do PDF","Confira os dados e finalize a inspeção.")
-    a,b,d,e=st.columns(4); a.metric("Veículo",f'{v["marca"]} {v["modelo"]}'.strip() or "—"); b.metric("Placa",v["placa"] or "—"); d.metric("Combustível",f'{f["percentual"]}%'); e.metric("Avarias",len(c["avarias"]["marcacoes"]))
+    c=st.session_state.inspection; v=c["veiculo"]; f=c["combustivel"]; topbar("11 • Revisão e emissão do PDF","Confira os dados e finalize a inspeção.")
+    a,b,d,e=st.columns(4); a.metric("Veículo",f'{v["marca"]} {v["modelo"]}'.strip() or "—"); b.metric("Placa",v["placa"] or "—"); d.metric("Combustível",f'{f["percentual"]}%'); e.metric("Avarias",len(c["avarias"].get("marcacoes", [])))
     
     for name,val in [
-        ("Veículo",f'{v["tipo"]} • {v["marca"]} {v["modelo"]} • {v["cor"]} • {v["km"]} km'),
+        ("Veículo",f'{v.get("marca", "")} {v.get("modelo", "")} • {v.get("cor", "")} • {v.get("km", "")} km'),
         ("Combustível",f'{f["tipo"]} • {f["nivel"]} • {f["percentual"]}%'),
         ("Acessórios",f'{sum(1 for x in c["acessorios"].values() if x["status"])} itens avaliados'),
         ("Pneus",f'{sum(1 for x in c["pneus"].values() if x["estado"])} posições avaliadas'),
+        ("Chave e Documentos",f'{1 if c.get("chave_documentos",{}).get("foto") else 0} foto'),
         ("Fotos",f'{len([x for x in c["fotos"].values() if x])} padrão + {len(c["fotos_acessorios"])} acessórios'),
         ("Proprietário",f'{c["proprietario"]["nome"] or "Pendente"} • {c["proprietario"].get("cpf","") or "Sem CPF"} • {c["proprietario"]["telefone"] or "Sem telefone"}'),
         ("Emitente",f'{c["emitente"]["empresa"] or "Pendente"} • {c["emitente"]["responsavel"] or "Sem responsável"}')]:
@@ -1089,8 +1208,8 @@ def admin_users():
     
     with st.form("admin_create_user"):
         a,b,c=st.columns(3)
-        nu=upper_text_input("Novo usuário",key="admin_novo_usuario")
-        nn=upper_text_input("Nome completo",key="admin_nome")
+        nu=a.text_input("Novo usuário")
+        nn=b.text_input("Nome completo")
         perfil=c.selectbox("Perfil", ["Inspetor","Administrador"])
         a,b=st.columns(2)
         np=a.text_input("Senha", type="password")
@@ -1136,14 +1255,11 @@ else:
     elif st.session_state.step==0: inicio()
     elif st.session_state.step==1: vehicle()
     elif st.session_state.step==2: fuel()
-    elif st.session_state.step==3: accessories()
-    elif st.session_state.step==4: tires()
-    elif st.session_state.step==5: damage()
-    elif st.session_state.step==6: photos()
-    elif st.session_state.step==7: owner()
-    elif st.session_state.step==8: issuer()
-    elif st.session_state.step==9: review()
-
-# Salva automaticamente a etapa e a inspeção para sobreviver ao F5/recarregamento.
-if st.session_state.get("user"):
-    save_current_state()
+    elif st.session_state.step==3: key_documents()
+    elif st.session_state.step==4: accessories()
+    elif st.session_state.step==5: tires()
+    elif st.session_state.step==6: damage()
+    elif st.session_state.step==7: photos()
+    elif st.session_state.step==8: owner()
+    elif st.session_state.step==9: issuer()
+    elif st.session_state.step==10: review()
