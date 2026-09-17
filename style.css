@@ -1,10 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
 /* =========================================================
-   AUTO CHECK — STYLE.CSS ORGANIZADO
-   ========================================================= */
-
-/* =========================================================
    1. PALETA E TEMA
    ========================================================= */
 
@@ -101,7 +97,7 @@ body,
 [data-testid="stExpander"] {
     background: var(--ac-surface) !important;
     border: 1px solid var(--ac-border) !important;
-    border-radius: 12px !important;
+    border-radius: 8px !important;
 }
 
 [data-testid="stExpander"] summary,
@@ -166,7 +162,7 @@ body,
 
     color: #FFFFFF !important;
     padding: 28px 30px;
-    border-radius: 12px;
+    border-radius: 8px;
     margin-bottom: 20px;
     box-shadow: 0 14px 35px rgba(2, 75, 245, 0.18);
 }
@@ -214,7 +210,7 @@ body,
 .ac-card {
     background: var(--ac-surface) !important;
     border: 1px solid var(--ac-border);
-    border-radius: 16px;
+    border-radius: 8px;
     padding: 20px;
 }
 
@@ -336,7 +332,7 @@ div[data-baseweb="menu"] li[aria-selected="true"]:hover {
 
 /* Arredondamento do menu */
 div[data-baseweb="popover"] {
-    border-radius: 12px !important;
+    border-radius: 8px !important;
     overflow: hidden !important;
 }
 
@@ -380,7 +376,7 @@ div[data-baseweb="popover"] {
 
 div.stButton > button {
     background: var(--ac-surface) !important;
-    border-radius: 12px !important;
+    border-radius: 8px !important;
     font-weight: 700 !important;
     min-height: 44px !important;
     border: 1px solid var(--ac-border) !important;
@@ -550,6 +546,105 @@ div[class*="st-key-damage_mark_"] button[kind="secondary"] span {
 
 
 /* =========================================================
+   12d. CARTÕES DE FOTO (Chave e Documentos / Fotos / Acessórios)
+   ========================================================= */
+
+.ac-photo-card {
+    background: var(--ac-surface) !important;
+    border: 1px solid var(--ac-border);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 14px;
+}
+
+.ac-photo-card img {
+    border-radius: 120px !important;
+}
+
+.ac-photo-card-title {
+    font-weight: 800;
+    font-size: 15px;
+    color: var(--ac-text) !important;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+
+/* =========================================================
+   12e. UPLOAD DE FOTOS (arquivo / câmera)
+   Remove o texto padrão "Drag and drop file here / Limit 200MB..."
+   e deixa a área de envio com um design mais limpo e clicável.
+   Vale para todas as telas que enviam fotos (Chave e Documentos,
+   Fotos, Fotos de acessórios).
+   ========================================================= */
+
+[data-testid="stFileUploader"] {
+    background: transparent !important;
+}
+
+[data-testid="stFileUploaderDropzone"] {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+    transition: none;
+}
+
+[data-testid="stFileUploaderDropzone"]:hover {
+    background: transparent !important;
+}
+
+/* Remove "Drag and drop file here" + "Limit 200MB per file..." */
+[data-testid="stFileUploaderDropzoneInstructions"] {
+    display: none !important;
+}
+
+[data-testid="stFileUploaderDropzone"] small {
+    display: none !important;
+}
+
+/* Botão "Browse files" vira um botão cheio, no estilo do app */
+[data-testid="stFileUploaderDropzone"] button {
+    width: auto !important;
+    background: var(--ac-orange) !important;
+    color: #FFFFFF !important;
+    border: none !important;
+    border-radius: 8px !important;
+    min-height: 40px !important;
+    height: 40px !important;
+    padding: 0 18px !important;
+    font-weight: 700 !important;
+    box-shadow: none !important;
+}
+
+[data-testid="stFileUploaderDropzone"] button:hover {
+    background: var(--ac-orange-dark) !important;
+}
+
+[data-testid="stFileUploaderDropzone"] button p,
+[data-testid="stFileUploaderDropzone"] button span {
+    color: transparent !important;
+    font-size: 0 !important;
+}
+[data-testid="stFileUploaderDropzone"] button p::after,
+[data-testid="stFileUploaderDropzone"] button span::after {
+    content: "Tirar" !important;
+    color: #FFFFFF !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
+}
+
+/* Câmera do navegador: mesmo raio de borda das fotos enviadas */
+[data-testid="stCameraInput"] video,
+[data-testid="stCameraInput"] img {
+    border-radius: 8px !important;
+}
+
+
+/* =========================================================
    13. MÉTRICAS
    ========================================================= */
 
@@ -557,7 +652,7 @@ div[class*="st-key-damage_mark_"] button[kind="secondary"] span {
     background: var(--ac-surface) !important;
     border: 1px solid var(--ac-border);
     padding: 16px;
-    border-radius: 16px;
+    border-radius: 8px;
 }
 
 [data-testid="stMetric"] * {
