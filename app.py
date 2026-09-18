@@ -50,23 +50,7 @@ TIRE_BRANDS = [
 _current_year = datetime.now().year
 VEHICLE_YEARS = [str(y) for y in range(_current_year + 1, 1979, -1)]
 
-def up(value):
-    """Texto em MAIÚSCULAS (aceita None)."""
-    return str(value if value is not None else "").upper()
 
-# Campos convertidos AUTOMATICAMENTE para MAIÚSCULAS — SOMENTE estes (o rótulo do campo é o
-# identificador; "Placa / Renavam" é um campo único no formulário). Todo o resto (senha,
-# e-mail, nomes, endereço, observações...) fica exatamente como o usuário digitou.
-# Enquanto digita, a exibição em maiúsculas vem do style.css (seção 15), que usa esta mesma
-# lista. Ao mudar a lista, mude nos dois lugares.
-UPPERCASE_FIELD_LABELS = ("Modelo", "Placa / Renavam", "Cor")
-
-def text_up(label, value="", where=None, **kwargs):
-    """st.text_input que devolve o valor em MAIÚSCULAS, mas SOMENTE para os rótulos de
-    UPPERCASE_FIELD_LABELS; para qualquer outro rótulo devolve o texto como foi digitado
-    (trava contra uso indevido). Para os demais campos use o st.text_input normal."""
-    raw = (where or st).text_input(label, value, **kwargs)
-    return up(raw) if label in UPPERCASE_FIELD_LABELS else raw
 
 def is_mobile_client():
     """True quando o navegador é de celular (usado para caber os canvas na tela)."""
@@ -671,12 +655,13 @@ def vehicle():
     placa_antes = v.get("placa", "")
     a,b,d=st.columns(3)
     with a: v["marca"]=pick_or_type("Marca",VEHICLE_BRANDS,v["marca"],"veic_marca")
-    v["modelo"]=text_up("Modelo",v["modelo"],where=b); v["placa"]=text_up("Placa / Renavam",v["placa"],where=d)
+    v["modelo"] = b.text_input("Modelo", v["modelo"])
+    v["placa"] = d.text_input("Placa / Renavam", v["placa"])
     plate_lookup_ui(v, placa_antes)
     a,b,d=st.columns(3)
     with a: v["ano"]=pick_or_type("Ano",VEHICLE_YEARS,v["ano"],"veic_ano")
-    v["cor"]=text_up("Cor",v["cor"],where=b); v["km"]=d.text_input("Km",v["km"])
-    v["observacoes"]=st.text_area("Observações gerais",v["observacoes"],height=90)
+    v["cor"] = b.text_input("Cor", v["cor"])
+    v["km"] = d.text_input("Km", v["km"])
     nav(fragment=True)
 
 @st.fragment
