@@ -54,18 +54,19 @@ def up(value):
     """Texto em MAIÚSCULAS (aceita None)."""
     return str(value if value is not None else "").upper()
 
-def text_up(label, value="", where=None, upper=True, **kwargs):
-    """Campo de texto que devolve o valor em MAIÚSCULAS.
-    Uso: text_up("Modelo", v["modelo"], where=coluna). Para E-MAIL, senha ou qualquer
-    campo técnico use upper=False (ou o st.text_input normal). Enquanto o usuário digita,
-    a exibição em maiúsculas vem do CSS (text-transform); aqui garantimos o valor salvo."""
-    raw = (where or st).text_input(label, value, **kwargs)
-    return up(raw) if upper else raw
+# Campos convertidos AUTOMATICAMENTE para MAIÚSCULAS — SOMENTE estes (o rótulo do campo é o
+# identificador; "Placa / Renavam" é um campo único no formulário). Todo o resto (senha,
+# e-mail, nomes, endereço, observações...) fica exatamente como o usuário digitou.
+# Enquanto digita, a exibição em maiúsculas vem do style.css (seção 15), que usa esta mesma
+# lista. Ao mudar a lista, mude nos dois lugares.
+UPPERCASE_FIELD_LABELS = ("Modelo", "Placa / Renavam", "Cor")
 
-def area_up(label, value="", where=None, upper=True, **kwargs):
-    """Mesmo que text_up, para st.text_area."""
-    raw = (where or st).text_area(label, value, **kwargs)
-    return up(raw) if upper else raw
+def text_up(label, value="", where=None, **kwargs):
+    """st.text_input que devolve o valor em MAIÚSCULAS, mas SOMENTE para os rótulos de
+    UPPERCASE_FIELD_LABELS; para qualquer outro rótulo devolve o texto como foi digitado
+    (trava contra uso indevido). Para os demais campos use o st.text_input normal."""
+    raw = (where or st).text_input(label, value, **kwargs)
+    return up(raw) if label in UPPERCASE_FIELD_LABELS else raw
 
 def is_mobile_client():
     """True quando o navegador é de celular (usado para caber os canvas na tela)."""
@@ -89,7 +90,7 @@ def pick_or_type(label, options, current, key):
         idx = 0
     sel = st.selectbox(label, choices, index=idx, key=key + "_sel")
     if sel == outro:
-        return text_up(label + " (digite)", cur if cur.upper() not in by_upper else "", key=key + "_free")
+        return st.text_input(label + " (digite)", cur if cur.upper() not in by_upper else "", key=key + "_free")
     return sel
 STEPS = [
     ("veiculo","02","Veículo"),("combustivel","03","Combustível"),
@@ -675,7 +676,7 @@ def vehicle():
     a,b,d=st.columns(3)
     with a: v["ano"]=pick_or_type("Ano",VEHICLE_YEARS,v["ano"],"veic_ano")
     v["cor"]=text_up("Cor",v["cor"],where=b); v["km"]=d.text_input("Km",v["km"])
-    v["observacoes"]=area_up("Observações gerais",v["observacoes"],height=90)
+    v["observacoes"]=st.text_area("Observações gerais",v["observacoes"],height=90)
     nav(fragment=True)
 
 @st.fragment
@@ -738,7 +739,7 @@ def key_documents():
             st.rerun()
 
     # Observação opcional (vazia = nada aparece no PDF).
-    c["chave_documentos_obs"] = area_up("Observação (opcional)", c.get("chave_documentos_obs", ""),
+    c["chave_documentos_obs"] = st.text_area("Observação (opcional)", c.get("chave_documentos_obs", ""),
                                         key="kd_obs", height=90, placeholder="Ex.: CHAVE COM CHAVEIRO, DOCUMENTO SEM CRLV...")
 
     nav(fragment=True)
@@ -756,7 +757,7 @@ def accessories():
             with col:
                 if st.button(label,key=f"acc_{i}_{opt}",use_container_width=True,type="primary" if it["status"]==opt else "secondary"):
                     it["status"]=opt; save_current_state(); st.rerun()
-        it["obs"]=text_up("Observação",it["obs"],where=cc[3],key=f"accobs_{i}",label_visibility="collapsed",placeholder="Observação opcional")
+        it["obs"]=cc[3].text_input("Observação",it["obs"],key=f"accobs_{i}",label_visibility="collapsed",placeholder="Observação opcional")
         st.divider()
     nav(fragment=True)
 
@@ -801,7 +802,7 @@ def tires():
         key=f"tm_{first_key}_sel"
     )
     if selected == "Outro (digitar)":
-        first_it["marca"] = text_up(
+        first_it["marca"] = st.text_input(
             "Marca (digite)",
             current_brand if current_brand not in TIRE_BRANDS else "",
             key=f"tm_{first_key}_free"
@@ -850,7 +851,7 @@ def tires():
             key=f"tm_{key}_sel"
         )
         if selected == "Outro (digitar)":
-            it["marca"] = text_up(
+            it["marca"] = st.text_input(
                 "Marca (digite)",
                 current_brand if current_brand not in TIRE_BRANDS else "",
                 key=f"tm_{key}_free"
@@ -860,7 +861,7 @@ def tires():
         else:
             it["marca"] = selected
 
-    c["pneus_observacao"] = area_up(
+    c["pneus_observacao"] = st.text_area(
         "Observação",
         c.get("pneus_observacao", ""),
         key="pneus_observacao",
@@ -1029,16 +1030,7 @@ def damage():
                         red = (rr > 140) & (rr > gg + 45) & (rr > bb + 45)
                         blue = (bb > 120) & (bb > rr + 35) & (bb > gg + 20)
                         mark = red | blue
-
-                        # Conta grupos de pixels conectados. Cada X/O desenhado
-                        # normalmente forma um grupo, sem contar o desenho do carro.
-                        try:
-                            from scipy import ndimage
-                            labels, total = ndimage.label(mark)
-                            sizes = np.bincount(labels.ravel())[1:]
-                            total = int(np.sum(sizes >= 8))
-                        except Exception:
-                            total = 1 if int(mark.sum()) >= 8 else 0
+                        total = 1 if int(mark.sum()) >= 8 else 0
 
                         av["marcacoes"] = [
                             {
@@ -1115,7 +1107,7 @@ def damage_photos():
                 st.image(thumb_bytes(item["foto"]), width=240)
             except Exception:
                 st.warning("Não foi possível exibir esta foto.")
-            item["descricao"] = text_up("Descrição / local (opcional)", item.get("descricao", ""),
+            item["descricao"] = st.text_input("Descrição / local (opcional)", item.get("descricao", ""),
                                         key=f"avaria_desc_{item['id']}", placeholder="Ex.: PORTA DIANTEIRA ESQUERDA")
             if st.button("🗑️ Remover foto", key=f"avaria_rm_{item['id']}", use_container_width=True):
                 fotos.remove(item)
@@ -1245,7 +1237,7 @@ def signature(title,key,stored):
 def owner():
     p=st.session_state.inspection["proprietario"]; topbar("09 • Proprietário","Nome, CPF, telefone e assinatura.")
     
-    a,b=st.columns(2); p["nome"]=text_up("Nome completo",p["nome"],where=a); p["cpf"]=b.text_input("CPF do proprietário",p.get("cpf","")); p["telefone"]=st.text_input("Telefone de contato",p["telefone"]); p["assinatura"]=signature("Assinatura do proprietário / responsável","sig_owner",p["assinatura"])
+    a,b=st.columns(2); p["nome"]=a.text_input("Nome completo",p["nome"]); p["cpf"]=b.text_input("CPF do proprietário",p.get("cpf","")); p["telefone"]=st.text_input("Telefone de contato",p["telefone"]); p["assinatura"]=signature("Assinatura do proprietário / responsável","sig_owner",p["assinatura"])
     nav(fragment=True)
 
 @st.fragment
@@ -1267,9 +1259,9 @@ def issuer():
     else:
         st.caption("Depois de preencher, os dados poderão ser salvos para as próximas vistorias.")
 
-    a,b=st.columns(2); e["empresa"]=text_up("Empresa / Emitente",e["empresa"],where=a); e["documento"]=b.text_input("CNPJ / Documento",e["documento"])
+    a,b=st.columns(2); e["empresa"]=a.text_input("Empresa / Emitente",e["empresa"]); e["documento"]=b.text_input("CNPJ / Documento",e["documento"])
     a,b=st.columns(2); e["telefone"]=a.text_input("Telefone",e["telefone"]); e["email"]=b.text_input("E-mail",e["email"])
-    e["endereco"]=text_up("Endereço",e["endereco"]); e["responsavel"]=text_up("Nome do responsável",e["responsavel"]); e["assinatura"]=signature("Assinatura da empresa / emitente","sig_issuer",e["assinatura"])
+    e["endereco"]=st.text_input("Endereço",e["endereco"]); e["responsavel"]=st.text_input("Nome do responsável",e["responsavel"]); e["assinatura"]=signature("Assinatura da empresa / emitente","sig_issuer",e["assinatura"])
 
     if st.button("💾 Salvar dados da empresa para próximas vistorias", use_container_width=True):
         dados={campo:e.get(campo,"") for campo in ["empresa","documento","telefone","email","endereco","responsavel"]}
@@ -1417,7 +1409,7 @@ def admin_users():
     with st.form("admin_create_user"):
         a,b,c=st.columns(3)
         nu=a.text_input("Novo usuário")
-        nn=text_up("Nome completo",where=b)
+        nn=b.text_input("Nome completo")
         perfil=c.selectbox("Perfil", ["Inspetor","Administrador"])
         a,b=st.columns(2)
         np=a.text_input("Senha", type="password")
