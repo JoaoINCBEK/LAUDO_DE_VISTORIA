@@ -86,6 +86,7 @@ body,
 [data-testid="stAlert"] {
     background: var(--ac-surface) !important;
     border: 1px solid var(--ac-border) !important;
+    border-radius: 8px;
 }
 
 [data-testid="stAlert"] p,
@@ -230,6 +231,7 @@ body,
     color: var(--ac-text) !important;
     -webkit-text-fill-color: var(--ac-text) !important;
     border: 1px solid var(--ac-border) !important;
+    border-radius: 8px;
 }
 
 .stTextInput input::placeholder,
@@ -783,4 +785,128 @@ div[class*="st-key-damage_mark_"] button[kind="secondary"] span {
 [data-testid="stSidebarCollapsedControl"] button svg {
     fill: #FFFFFF !important;
     color: #FFFFFF !important;
+}
+
+
+/* =========================================================
+   15. TEXTOS DIGITADOS EM MAIÚSCULAS
+   Exibe em maiúsculas enquanto digita; o valor salvo é convertido
+   no app.py (função text_up). E-mail, senha e usuário ficam como digitados.
+   ========================================================= */
+
+.stTextInput input,
+.stTextArea textarea {
+    text-transform: uppercase;
+}
+
+.stTextInput input::placeholder,
+.stTextArea textarea::placeholder {
+    text-transform: none;
+}
+
+.stTextInput input[type="password"],
+.stTextInput input[aria-label*="mail" i],
+.stTextInput input[aria-label*="usuário" i],
+.stTextInput input[aria-label*="usuario" i] {
+    text-transform: none;
+}
+
+
+/* =========================================================
+   16. FOTOS DE AVARIAS (07 • Avarias) — botão grande, fácil de tocar
+   ========================================================= */
+
+div[class*="st-key-avaria_up"] [data-testid="stFileUploaderDropzone"] {
+    width: 100% !important;
+}
+
+div[class*="st-key-avaria_up"] [data-testid="stFileUploaderDropzone"] button {
+    width: 100% !important;
+    min-height: 52px !important;
+    height: 52px !important;
+}
+
+div[class*="st-key-avaria_up"] [data-testid="stFileUploaderDropzone"] button p::after,
+div[class*="st-key-avaria_up"] [data-testid="stFileUploaderDropzone"] button span::after {
+    content: "📷 Adicionar fotos" !important;
+    font-size: 16px !important;
+}
+
+[data-testid="stCameraInput"] {
+    max-width: 100% !important;
+}
+
+
+/* =========================================================
+   17. CELULAR — AJUSTES DE RESPONSIVIDADE
+   ========================================================= */
+
+@media (max-width: 700px) {
+
+    /* margens laterais menores: mais área útil, nada cortado */
+    [data-testid="stMainBlockContainer"],
+    .block-container {
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+    }
+
+    /* textos longos quebram em vez de estourar a largura */
+    .ac-title,
+    .ac-card-title,
+    .ac-sub,
+    .ac-meta {
+        overflow-wrap: anywhere;
+        word-break: break-word;
+    }
+
+    /* botões com texto grande quebram linha e continuam tocáveis */
+    div.stButton > button {
+        white-space: normal !important;
+        height: auto !important;
+    }
+
+    /* 16px evita o zoom automático do iPhone ao tocar num campo */
+    .stTextInput input,
+    .stTextArea textarea,
+    .stSelectbox input {
+        font-size: 16px !important;
+    }
+
+    img,
+    video {
+        max-width: 100% !important;
+    }
+
+    /* Lista de opções do select (Marca, Ano, Marca do pneu...) */
+    div[data-baseweb="popover"] {
+        max-width: calc(100vw - 16px) !important;
+    }
+
+    div[data-baseweb="popover"] ul[role="listbox"],
+    div[data-baseweb="menu"] ul {
+        max-height: min(50vh, 340px) !important;
+        overflow-y: auto !important;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    div[data-baseweb="popover"] li {
+        min-height: 44px;
+    }
+}
+
+@media (max-width: 400px) {
+
+    .ac-hero {
+        padding: 16px;
+    }
+
+    .ac-title {
+        font-size: 26px !important;
+        letter-spacing: 0;
+    }
+
+    .ac-card-title {
+        font-size: 18px !important;
+    }
 }
