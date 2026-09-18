@@ -1,14 +1,13 @@
 import streamlit as st
+import streamlit.components.v1 as components
 from pathlib import Path
 from datetime import datetime
-import json, hashlib, base64, io, re, secrets
-from PIL import Image, ImageDraw
+import json, hashlib, base64, io, re, secrets, time
+from PIL import Image, ImageDraw, ImageOps
 import numpy as np
 from streamlit_drawable_canvas import st_canvas
-from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage, PageBreak
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from streamlit.errors import StreamlitAPIException
+import pdf_report, placa_api
 
 APP = "LAUDO DE VISTORIA"
 DATA_DIR = Path("autocheck_data")
@@ -35,6 +34,7 @@ TIRES = [("Dianteiro esquerdo","DE"),("Dianteiro direito","DD"),("Traseiro esque
 PHOTO_SLOTS = [("frente","Frente"),("traseira","Traseira"),("lateral_esq","Lateral esquerda"),("lateral_dir","Lateral direita"),("interior","Interior"),("painel","Painel / km")]
 KEY_DOC_ITEMS = [("chave_principal","Chave principal"),("chave_reserva","Chave reserva"),("manual","Manual do veículo"),("documento","Documento do veículo")]
 KEY_DOC_ICONS = {"chave_principal":"🔑","chave_reserva":"🗝️","manual":"📘","documento":"📄"}
+KEY_DOC_LABELS = dict(KEY_DOC_ITEMS)
 
 VEHICLE_BRANDS = [
     "Chevrolet","Fiat","Ford","Volkswagen","Toyota","Honda","Hyundai","Renault","Nissan","Jeep",
@@ -50,19 +50,46 @@ TIRE_BRANDS = [
 _current_year = datetime.now().year
 VEHICLE_YEARS = [str(y) for y in range(_current_year + 1, 1979, -1)]
 
+def up(value):
+    """Texto em MAIÚSCULAS (aceita None)."""
+    return str(value if value is not None else "").upper()
+
+def text_up(label, value="", where=None, upper=True, **kwargs):
+    """Campo de texto que devolve o valor em MAIÚSCULAS.
+    Uso: text_up("Modelo", v["modelo"], where=coluna). Para E-MAIL, senha ou qualquer
+    campo técnico use upper=False (ou o st.text_input normal). Enquanto o usuário digita,
+    a exibição em maiúsculas vem do CSS (text-transform); aqui garantimos o valor salvo."""
+    raw = (where or st).text_input(label, value, **kwargs)
+    return up(raw) if upper else raw
+
+def area_up(label, value="", where=None, upper=True, **kwargs):
+    """Mesmo que text_up, para st.text_area."""
+    raw = (where or st).text_area(label, value, **kwargs)
+    return up(raw) if upper else raw
+
+def is_mobile_client():
+    """True quando o navegador é de celular (usado para caber os canvas na tela)."""
+    try:
+        ua = st.context.headers.get("User-Agent", "") or ""
+    except Exception:
+        return False
+    return bool(re.search(r"Android|iPhone|iPod|Mobile", ua, re.I))
+
 def pick_or_type(label, options, current, key):
     """Selectbox com lista pré-definida + opção 'Outro' com campo livre."""
     outro = "Outro (digitar)"
     choices = list(options) + [outro]
-    if current in choices:
-        idx = choices.index(current)
-    elif current:
+    by_upper = {str(o).upper(): o for o in options}   # compara sem diferenciar maiúsculas/minúsculas
+    cur = str(current or "")
+    if cur.upper() in by_upper:
+        idx = choices.index(by_upper[cur.upper()])
+    elif cur:
         idx = len(choices) - 1  # valor já digitado que não está na lista -> cai em "Outro"
     else:
         idx = 0
     sel = st.selectbox(label, choices, index=idx, key=key + "_sel")
     if sel == outro:
-        return st.text_input(label + " (digite)", current if current not in options else "", key=key + "_free")
+        return text_up(label + " (digite)", cur if cur.upper() not in by_upper else "", key=key + "_free")
     return sel
 STEPS = [
     ("veiculo","02","Veículo"),("combustivel","03","Combustível"),
@@ -117,9 +144,9 @@ def new_inspection():
         "veiculo": {"marca":"","modelo":"","ano":"","placa":"","cor":"","chassi":"","km":"","observacoes":""},
         "combustivel":{"tipo":"Gasolina","nivel":"1/2","percentual":50},
         "acessorios":{a:{"status":"","obs":""} for a in ACCESSORIES},
-        "chave_documentos":{"foto": None},
+        "chave_documentos":{"foto": None}, "chave_documentos_obs":"",
         "pneus":{k:{"estado":"","marca":"","medida":"","observacao":""} for _,k in TIRES},
-        "avarias":{"diagrama":None,"imagem":None,"marcacoes":[]},
+        "avarias":{"diagrama":None,"imagem":None,"marcacoes":[],"fotos":[]},
         "fotos":{}, "fotos_acessorios":[],
         "proprietario":{"nome":"","cpf":"","telefone":"","assinatura":None},
         "emitente":{"empresa":"","documento":"","telefone":"","email":"","endereco":"","responsavel":"","assinatura":None}
@@ -131,18 +158,21 @@ def normalize_tires(inspection):
         it.pop("medida", None)
         it.pop("observacao", None)
     inspection.setdefault("pneus_observacao", "")
+    # Chave e Documentos: mantém TODAS as fotos. Vistorias no formato antigo
+    # (chave_principal / chave_reserva / manual / documento) não perdem mais fotos.
     kd = inspection.setdefault("chave_documentos", {"foto": None})
-    if "foto" not in kd:
-        kd["foto"] = next((v for v in kd.values() if v), None)
-        inspection["chave_documentos"] = {"foto": kd["foto"]}
-    else:
-        inspection["chave_documentos"] = {"foto": kd.get("foto")}
+    kd.setdefault("foto", None)
+    inspection.setdefault("chave_documentos_obs", "")   # observação opcional da etapa
+    # Avarias: lista de fotos (uma entrada por foto, com descrição opcional).
+    av = inspection.setdefault("avarias", {"diagrama": None, "imagem": None, "marcacoes": []})
+    if not isinstance(av.get("fotos"), list):
+        av["fotos"] = []
     return inspection
 
 
 def b64_image(upload):
     if upload is None: return None
-    img = Image.open(upload).convert("RGB")
+    img = ImageOps.exif_transpose(Image.open(upload)).convert("RGB")  # respeita a orientação da câmera
     img.thumbnail((1400,1000))
     out=io.BytesIO(); img.save(out,"JPEG",quality=78,optimize=True)
     return base64.b64encode(out.getvalue()).decode()
@@ -153,6 +183,15 @@ def b64_pil(img):
 
 def pil_b64(s):
     return Image.open(io.BytesIO(base64.b64decode(s))).convert("RGB")
+
+@st.cache_data(show_spinner=False, max_entries=512)
+def thumb_bytes(b64, max_side=480):
+    """Miniatura leve (JPEG) para exibir no celular sem carregar a foto inteira."""
+    im = pil_b64(b64)
+    im.thumbnail((max_side, max_side))
+    out = io.BytesIO()
+    im.save(out, "JPEG", quality=80)
+    return out.getvalue()
 
 VEHICLE_DIAGRAMS = [
     ("sedan","🚗","Sedã"),
@@ -275,90 +314,20 @@ def canvas_image_drawing(image):
         }]
     }
 
-def pdf_bytes(c):
-    buf=io.BytesIO()
-    doc=SimpleDocTemplate(buf,pagesize=A4,rightMargin=32,leftMargin=32,topMargin=34,bottomMargin=34)
-    ss=getSampleStyleSheet()
-    ss.add(ParagraphStyle(name="ACHead",parent=ss["Heading1"],fontSize=20,textColor=colors.HexColor("#111827")))
-    ss.add(ParagraphStyle(name="Sec",parent=ss["Heading2"],fontSize=12,textColor=colors.HexColor("#111827"),spaceBefore=12,spaceAfter=6))
-    ss.add(ParagraphStyle(name="Sm",parent=ss["BodyText"],fontSize=8.5,leading=11))
-    story=[]; v=c["veiculo"]; f=c["combustivel"]
-    story += [Paragraph("LAUDO DE VISTORIA",ss["ACHead"]),Paragraph("Relatório profissional de inspeção veicular",ss["Sm"]),Spacer(1,8)]
-    t=Table([[c["numero"],f"Status: {c["status"]}",f"Data: {c.get("finalizado_em") or c["criado_em"]}"]],colWidths=[170,170,170])
-    t.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),colors.HexColor("#f1f5f9")),("BOX",(0,0),(-1,-1),.5,colors.HexColor("#cbd5e1")),("FONTSIZE",(0,0),(-1,-1),8),("PADDING",(0,0),(-1,-1),7)])); story.append(t)
-    story.append(Paragraph("1. Identificação do veículo",ss["Sec"]))
-    rows=[[str(x),str(v.get(k,""))] for x,k in [("Tipo","tipo"),("Marca","marca"),("Modelo","modelo"),("Ano","ano"),("Placa","placa"),("Cor","cor"),("Chassi","chassi")]]
-    t=Table(rows,colWidths=[110,400]); t.setStyle(TableStyle([("GRID",(0,0),(-1,-1),.3,colors.HexColor("#e2e8f0")),("BACKGROUND",(0,0),(0,-1),colors.HexColor("#f8fafc")),("FONTSIZE",(0,0),(-1,-1),8),("PADDING",(0,0),(-1,-1),5)])); story.append(t)
-    story.append(Paragraph("2. Combustível",ss["Sec"])); story.append(Paragraph(f'Tipo: {f["tipo"]} &nbsp; Nível: {f["nivel"]} &nbsp; Percentual: {f["percentual"]}%',ss["Sm"]))
-    story.append(Paragraph("3. Acessórios",ss["Sec"]))
-    ar=[[n,it["status"],it.get("obs","")] for n,it in c["acessorios"].items() if it.get("status")]
-    if ar:
-        t=Table([["Item","Situação","Observação"]]+ar,colWidths=[180,90,240]); t.setStyle(TableStyle([("GRID",(0,0),(-1,-1),.3,colors.HexColor("#e2e8f0")),("BACKGROUND",(0,0),(-1,0),colors.HexColor("#111827")),("TEXTCOLOR",(0,0),(-1,0),colors.white),("FONTSIZE",(0,0),(-1,-1),8),("PADDING",(0,0),(-1,-1),5)])); story.append(t)
-    story.append(Paragraph("4. Pneus",ss["Sec"]))
-    labels={k:n for n,k in TIRES}; tr=[["Posição","Estado","Marca"]]+[[labels.get(k,k),it.get("estado",""),it.get("marca","")] for k,it in c["pneus"].items()]
-    t=Table(tr,colWidths=[150,100,180]); t.setStyle(TableStyle([("GRID",(0,0),(-1,-1),.3,colors.HexColor("#e2e8f0")),("BACKGROUND",(0,0),(-1,0),colors.HexColor("#111827")),("TEXTCOLOR",(0,0),(-1,0),colors.white),("FONTSIZE",(0,0),(-1,-1),7.5),("PADDING",(0,0),(-1,-1),4)])); story.append(t)
-    story.append(PageBreak()); story.append(Paragraph("5. Avarias",ss["Sec"]))
-    av=c["avarias"]
-    story.append(Paragraph(f'Desenho utilizado: {(av.get("diagrama") or "sedan").title()}',ss["Sm"]))
-    if av.get("imagem"):
-        try:
-            im=pil_b64(av["imagem"]); out=io.BytesIO(); im.save(out,"PNG"); out.seek(0); story.append(RLImage(out,width=360,height=256))
-        except Exception: pass
-    for m in av["marcacoes"]: story.append(Paragraph(f"• {m['tipo']} — {m['severidade']} — {m['descricao']}",ss["Sm"]))
-    story.append(Paragraph("6. Fotos",ss["Sec"]))
-    foto_items=[(name,b64) for name,b64 in c.get("fotos",{}).items() if b64]
-    for name,b64 in foto_items:
-        try:
-            im=pil_b64(b64)
-            im.thumbnail((900,700))
-            out=io.BytesIO()
-            im.save(out,"JPEG",quality=90)
-            out.seek(0)
-            story.append(Paragraph(name.replace("_"," ").title(),ss["Sm"]))
-            story.append(RLImage(out,width=230,height=172))
-            story.append(Spacer(1,6))
-        except Exception:
-            pass
+def pdf_bytes(c, warnings=None):
+    """Gera o PDF da vistoria (layout em pdf_report.py). `warnings` recebe avisos de
+    fotos que não puderam ser incluídas (nenhuma foto é descartada em silêncio)."""
+    labels = {
+        "tires": {k: n for n, k in TIRES},
+        "photos": dict(PHOTO_SLOTS),
+        "keydoc": dict(KEY_DOC_ITEMS),
+        "diagrams": {k: lbl for k, _icon, lbl in VEHICLE_DIAGRAMS},
+    }
+    return pdf_report.build_pdf(c, labels, warnings)
 
-    extras=c.get("fotos_acessorios",[])
-    if extras:
-        story.append(Paragraph("Fotos de acessórios",ss["Sm"]))
-        for i,b64 in enumerate(extras,1):
-            try:
-                im=pil_b64(b64)
-                im.thumbnail((900,700))
-                out=io.BytesIO()
-                im.save(out,"JPEG",quality=90)
-                out.seek(0)
-                story.append(Paragraph(f"Acessório {i}",ss["Sm"]))
-                story.append(RLImage(out,width=230,height=172))
-                story.append(Spacer(1,6))
-            except Exception:
-                pass
-
-    kd_items=[("Chave e Documentos", c.get("chave_documentos",{}).get("foto"))]
-    kd_items=[(name,b64) for name,b64 in kd_items if b64]
-    if kd_items:
-        story.append(Paragraph("Chave e Documentos",ss["Sm"]))
-        for name,b64 in kd_items:
-            try:
-                im=pil_b64(b64)
-                im.thumbnail((900,700))
-                out=io.BytesIO()
-                im.save(out,"JPEG",quality=90)
-                out.seek(0)
-                story.append(Paragraph(name,ss["Sm"]))
-                story.append(RLImage(out,width=230,height=172))
-                story.append(Spacer(1,6))
-            except Exception:
-                pass
-    story.append(Paragraph("7. Proprietário",ss["Sec"]))
-    p=c["proprietario"]; story.append(Paragraph(f'Nome: {p["nome"]}<br/>CPF: {p.get("cpf","")}<br/>Telefone: {p["telefone"]}',ss["Sm"]))
-    if p.get("assinatura"): story.append(RLImage(io.BytesIO(base64.b64decode(p["assinatura"])),width=210,height=75))
-    story.append(Paragraph("8. Empresa / Emitente",ss["Sec"]))
-    e=c["emitente"]; story.append(Paragraph(f'Empresa: {e["empresa"]}<br/>Documento: {e["documento"]}<br/>Telefone: {e["telefone"]}<br/>E-mail: {e["email"]}<br/>Endereço: {e["endereco"]}<br/>Responsável: {e["responsavel"]}',ss["Sm"]))
-    if e.get("assinatura"): story.append(RLImage(io.BytesIO(base64.b64decode(e["assinatura"])),width=210,height=75))
-    doc.build(story); return buf.getvalue()
+def inspection_fingerprint(c):
+    """Assinatura dos dados da vistoria: detecta PDF desatualizado."""
+    return hashlib.md5(json.dumps(c, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
 
 def draft_path(token):
     return DRAFTS_DIR / f"{token}.json"
@@ -444,6 +413,140 @@ if st.session_state.user and not st.session_state.get("_restored_state", False):
     load_current_state(st.session_state.user)
     st.session_state._restored_state = True
 
+
+# ---------------------------------------------------------------------------
+# Ajustes de navegador (celular)
+# 1) TROCA DE ETAPA -> TOPO. O Streamlit rola um container interno (o elemento muda de
+#    versão para versão: .main, .stMain, stMain...), por isso seletores fixos falham.
+#    Aqui o navegador descobre sozinho: zera QUALQUER elemento que esteja rolado, chama
+#    scrollIntoView no topo do conteúdo e também rola os quadros pai. Dois gatilhos
+#    independentes: (a) um marcador no DOM (.ac-view-marker) que muda a cada etapa e é
+#    observado continuamente; (b) um iframe disparado pelo servidor na troca de etapa.
+# 2) SELECTS: no celular, o campo de busca do selectbox abria o teclado virtual, que cobria a
+#    lista de opções. Em telas de toque o campo vira somente leitura (inputmode=none).
+# 3) CANVAS (avarias e assinaturas): se o container for mais estreito que o canvas, a exibição
+#    é reduzida (transform: scale) para caber SEM cortar. A resolução interna não muda e o
+#    navegador converte o toque para as coordenadas do canvas.
+# O código é injetado no documento pai (não fica preso ao iframe, que o Streamlit recria).
+# ---------------------------------------------------------------------------
+CLIENT_JS = r"""
+(function () {
+  var doc = document, win = window;
+  function isTouch() { try { return win.matchMedia('(pointer: coarse)').matches; } catch (e) { return false; } }
+
+  /* ---------- 1) topo ---------- */
+  function resetEl(el) { try { if (el.scrollTop) el.scrollTop = 0; if (el.scrollLeft) el.scrollLeft = 0; } catch (e) {} }
+  function scrollTopNow() {
+    ['[data-testid="stMain"]', 'section.main', '.stMain', '[data-testid="stAppViewContainer"]', '.stApp', 'html', 'body']
+      .forEach(function (s) {
+        doc.querySelectorAll(s).forEach(function (el) {
+          try { el.scrollTo({ top: 0, left: 0, behavior: 'instant' }); } catch (e) { resetEl(el); }
+        });
+      });
+    doc.querySelectorAll('*').forEach(function (el) { if (el.scrollTop > 0) resetEl(el); });
+    var top = doc.querySelector('[data-testid="stMainBlockContainer"]') || doc.querySelector('.block-container');
+    if (top && top.scrollIntoView) {
+      try { top.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'instant' }); } catch (e) { top.scrollIntoView(true); }
+    }
+    var w = win;
+    for (var i = 0; i < 4; i++) {
+      try { w.scrollTo(0, 0); } catch (e) {}
+      if (!w.parent || w.parent === w) break;
+      w = w.parent;
+    }
+  }
+  win.__acScrollTop = function () {
+    scrollTopNow();
+    [80, 250, 600].forEach(function (t) { win.setTimeout(scrollTopNow, t); });
+  };
+  var lastView = null;
+  function checkView() {
+    var m = doc.querySelector('.ac-view-marker');
+    if (!m) return;
+    var v = m.className;
+    if (lastView === null) { lastView = v; return; }
+    if (v !== lastView) { lastView = v; win.__acScrollTop(); }
+  }
+
+  /* ---------- 2) selects sem teclado ---------- */
+  function noKeyboard(i) {
+    if (!isTouch() || i.getAttribute('data-ac-ro')) return;
+    i.setAttribute('inputmode', 'none'); i.setAttribute('readonly', 'readonly'); i.setAttribute('data-ac-ro', '1');
+  }
+  function scan() { doc.querySelectorAll('[data-baseweb="select"] input').forEach(noKeyboard); }
+
+  /* ---------- 3) canvas cabe na tela ---------- */
+  function fitCanvases() {
+    doc.querySelectorAll('iframe').forEach(function (f) {
+      var src = f.getAttribute('src') || '';
+      if (src.indexOf('streamlit_drawable_canvas') < 0) return;
+      var wrap = f.parentElement, cd = null;
+      if (!wrap) return;
+      try { cd = f.contentDocument; } catch (e) { return; }
+      if (!cd) return;
+      var cc = cd.querySelector('.canvas-container') || cd.querySelector('canvas');
+      if (!cc || !cc.offsetWidth) return;
+      var W = cc.offsetWidth;
+      wrap.style.overflow = 'hidden'; wrap.style.minWidth = '0';
+      var avail = wrap.clientWidth;
+      var k = Math.min(1, avail / W);
+      if (k > 0.999) {
+        if (f.getAttribute('data-ac-fit')) {
+          ['width', 'max-width', 'transform', 'transform-origin'].forEach(function (p) { f.style.removeProperty(p); });
+          wrap.style.removeProperty('height');
+          f.removeAttribute('data-ac-fit');
+        }
+        return;
+      }
+      var sig = W + '|' + k.toFixed(3) + '|' + f.offsetHeight;
+      if (f.getAttribute('data-ac-fit') === sig) return;
+      f.style.setProperty('width', W + 'px', 'important');
+      f.style.setProperty('max-width', 'none', 'important');
+      f.style.setProperty('transform-origin', '0 0');
+      f.style.setProperty('transform', 'scale(' + k + ')');
+      wrap.style.height = Math.ceil(f.offsetHeight * k) + 'px';
+      f.setAttribute('data-ac-fit', sig);
+    });
+  }
+
+  var pending = false;
+  new MutationObserver(function () {
+    if (pending) return; pending = true;
+    win.requestAnimationFrame(function () { pending = false; scan(); checkView(); });
+  }).observe(doc.body, { childList: true, subtree: true });
+  doc.addEventListener('focusin', function (e) {
+    var t = e.target;
+    if (t && t.matches && t.matches('[data-baseweb="select"] input')) noKeyboard(t);
+  }, true);
+  win.setInterval(function () { scan(); checkView(); fitCanvases(); }, 350);
+  scan(); checkView(); fitCanvases();
+})();
+"""
+
+def view_signature():
+    """Identifica a tela atual (etapa, histórico, admin...). Muda a cada troca de etapa."""
+    ss = st.session_state
+    insp = ss.get("inspection") or {}
+    return (ss.get("user") is not None, ss.get("step", 0), ss.get("admin_users", False),
+            ss.get("show_history", False), ss.get("clear_inspections", False), insp.get("numero"))
+
+def view_marker_html():
+    """Marcador invisível no topo da página; sua classe muda a cada etapa (o JS observa)."""
+    sig = re.sub(r"[^a-z0-9]+", "-", "-".join(str(x).lower() for x in view_signature())).strip("-")
+    return f'<div class="ac-view-marker v-{sig}"></div>'
+
+def client_helpers(scroll_top=False):
+    """Instala os ajustes de navegador (uma vez) e, se pedido, força a volta ao topo."""
+    boot = json.dumps(CLIENT_JS)
+    call = "if (window.parent.__acScrollTop) { window.parent.__acScrollTop(); }" if scroll_top else ""
+    components.html(
+        "<script>(function(){ try { var d = window.parent.document;"
+        " if (!d.getElementById('ac-helpers')) { var s = d.createElement('script'); s.id = 'ac-helpers';"
+        " s.text = " + boot + "; d.head.appendChild(s); } " + call + " } catch (e) {} })();"
+        " // " + (str(time.time_ns()) if scroll_top else "static") + "</script>",
+        height=0,
+    )
+
 def login_screen():
     st.markdown(hero_html("LAUDO DE VISTORIA", "Inspeção veicular digital", "Sistema profissional de inspeção"), unsafe_allow_html=True)
     a,b=st.columns([1,1.1],gap="large")
@@ -509,18 +612,70 @@ def nav(fragment=False):
             st.rerun(scope="app") if fragment else st.rerun()
     st.progress((st.session_state.step+1)/(len(STEPS)+1))
 
+def get_placa_config():
+    """Configuração da consulta de placa (só no servidor). None = desligada."""
+    try:
+        secret = dict(st.secrets["placa_api"])
+    except Exception:
+        secret = {}
+    return placa_api.load_config(secret)
+
+def plate_lookup_ui(v, placa_antes):
+    """Consulta OPCIONAL pela placa. Só preenche campos vazios (ou preenchidos antes
+    por uma consulta) e nunca bloqueia o formulário: se falhar, o usuário digita."""
+    plate = placa_api.normalize_plate(v.get("placa"))
+    changed = plate != placa_api.normalize_plate(placa_antes)
+    status = v.get("_placa_status") or {}
+    same = status.get("placa") == plate
+    retry = False
+    if same and status.get("status") == "unavailable":
+        st.warning(status.get("msg") or "Consulta de placa indisponível. Preencha os dados manualmente.")
+        retry = st.button("🔄 Tentar consultar novamente", key="placa_retry", use_container_width=True)
+    elif same and status.get("msg"):
+        st.caption(status["msg"])
+    if not (changed or retry) or not placa_api.is_valid_plate(plate):
+        return
+
+    with st.spinner("Consultando placa..."):
+        res = placa_api.lookup_plate(plate, get_placa_config())
+
+    msg = ""
+    if res.status == "not_configured":
+        msg = "Consulta automática de placa não configurada. Preencha os dados manualmente."
+    elif res.status == "unavailable":
+        msg = (res.message or "Consulta indisponível.") + " Preencha manualmente ou tente novamente."
+    elif res.status in ("ok", "not_found"):
+        auto = v.setdefault("_placa_auto", {})
+        found = res.data if res.status == "ok" else {}
+        for f in placa_api.FIELDS:
+            cur = str(v.get(f, "") or "").strip()
+            if not cur or cur.upper() == str(auto.get(f, "")).upper():   # vazio, ou preenchido antes pela consulta
+                new = found.get(f) or placa_api.NOT_FOUND_TEXT
+                v[f] = new
+                auto[f] = new
+        msg = ("Dados preenchidos pela placa. Confira antes de continuar." if res.status == "ok"
+               else "Placa não encontrada. Preencha os dados manualmente.")
+    v["_placa_status"] = {"placa": plate, "status": res.status, "msg": msg}
+    save_current_state()
+    try:
+        st.rerun(scope="fragment")   # redesenha marca/modelo e mostra a mensagem de status
+    except StreamlitAPIException:
+        st.rerun()
+
 @st.fragment
 def vehicle():
     c=st.session_state.inspection; v=c["veiculo"]; topbar("02 • Informações do veículo","Tipo, identificação e dados complementares.")
     st.subheader("Informações do Veículo")
 
+    placa_antes = v.get("placa", "")
     a,b,d=st.columns(3)
     with a: v["marca"]=pick_or_type("Marca",VEHICLE_BRANDS,v["marca"],"veic_marca")
-    v["modelo"]=b.text_input("Modelo",v["modelo"]); v["placa"]=d.text_input("Placa / Renavam",v["placa"])
+    v["modelo"]=text_up("Modelo",v["modelo"],where=b); v["placa"]=text_up("Placa / Renavam",v["placa"],where=d)
+    plate_lookup_ui(v, placa_antes)
     a,b,d=st.columns(3)
     with a: v["ano"]=pick_or_type("Ano",VEHICLE_YEARS,v["ano"],"veic_ano")
-    v["cor"]=b.text_input("Cor",v["cor"]).upper(); v["km"]=d.text_input("Km",v["km"])
-    v["observacoes"]=st.text_area("Observações gerais",v["observacoes"],height=90)
+    v["cor"]=text_up("Cor",v["cor"],where=b); v["km"]=d.text_input("Km",v["km"])
+    v["observacoes"]=area_up("Observações gerais",v["observacoes"],height=90)
     nav(fragment=True)
 
 @st.fragment
@@ -572,7 +727,20 @@ def key_documents():
             except Exception:
                 st.error("Não foi possível salvar a foto.")
 
-    
+    # Fotos do formato antigo (chave principal / reserva / manual / documento): continuam
+    # visíveis, entram no PDF e podem ser removidas.
+    for k, val in [(k, x) for k, x in kd.items() if k != "foto" and x]:
+        st.markdown(f'<div class="ac-photo-card-title">{KEY_DOC_ICONS.get(k, "📷")} {KEY_DOC_LABELS.get(k, k)}</div>', unsafe_allow_html=True)
+        st.image(pil_b64(val), use_container_width=True)
+        if st.button("🗑️ Remover foto", key="remove_kd_"+k, use_container_width=True):
+            kd[k] = None
+            save_current_state()
+            st.rerun()
+
+    # Observação opcional (vazia = nada aparece no PDF).
+    c["chave_documentos_obs"] = area_up("Observação (opcional)", c.get("chave_documentos_obs", ""),
+                                        key="kd_obs", height=90, placeholder="Ex.: CHAVE COM CHAVEIRO, DOCUMENTO SEM CRLV...")
+
     nav(fragment=True)
 
 @st.fragment
@@ -588,7 +756,7 @@ def accessories():
             with col:
                 if st.button(label,key=f"acc_{i}_{opt}",use_container_width=True,type="primary" if it["status"]==opt else "secondary"):
                     it["status"]=opt; save_current_state(); st.rerun()
-        it["obs"]=cc[3].text_input("Observação",it["obs"],key=f"accobs_{i}",label_visibility="collapsed",placeholder="Observação opcional")
+        it["obs"]=text_up("Observação",it["obs"],where=cc[3],key=f"accobs_{i}",label_visibility="collapsed",placeholder="Observação opcional")
         st.divider()
     nav(fragment=True)
 
@@ -633,7 +801,7 @@ def tires():
         key=f"tm_{first_key}_sel"
     )
     if selected == "Outro (digitar)":
-        first_it["marca"] = st.text_input(
+        first_it["marca"] = text_up(
             "Marca (digite)",
             current_brand if current_brand not in TIRE_BRANDS else "",
             key=f"tm_{first_key}_free"
@@ -682,7 +850,7 @@ def tires():
             key=f"tm_{key}_sel"
         )
         if selected == "Outro (digitar)":
-            it["marca"] = st.text_input(
+            it["marca"] = text_up(
                 "Marca (digite)",
                 current_brand if current_brand not in TIRE_BRANDS else "",
                 key=f"tm_{key}_free"
@@ -692,7 +860,7 @@ def tires():
         else:
             it["marca"] = selected
 
-    c["pneus_observacao"] = st.text_area(
+    c["pneus_observacao"] = area_up(
         "Observação",
         c.get("pneus_observacao", ""),
         key="pneus_observacao",
@@ -704,6 +872,16 @@ def tires():
     nav(fragment=True)
 
 
+def reset_damage_canvas(av, view):
+    """Recomeça o desenho do veículo do zero (novo canvas com o desenho-base limpo)."""
+    ver_key = f"canvas_version_{view}"
+    av["imagem"] = None
+    av["imagem_ok"] = False
+    av["marcacoes"] = []
+    st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
+    save_current_state()
+    st.rerun()
+
 def damage():
     c=st.session_state.inspection; av=c["avarias"]
     topbar("07 • Avarias","Marque arranhões/avarias com vermelho e amassados com azul direto no desenho do veículo.")
@@ -714,14 +892,9 @@ def damage():
         av["diagrama"] = st.session_state.damage_view
     view = st.session_state.damage_view
 
-    # Histórico próprio para os botões de desfazer/refazer/limpar.
-    hist_key = f"damage_history_{view}"
-    redo_key = f"damage_redo_{view}"
+    # Versão do canvas: só muda para recomeçar o desenho do zero (Limpar / trocar de veículo).
+    # Desfazer/refazer NÃO passa mais por aqui: é a barra nativa do canvas, igual à das assinaturas.
     ver_key = f"canvas_version_{view}"
-    if hist_key not in st.session_state:
-        st.session_state[hist_key] = []
-    if redo_key not in st.session_state:
-        st.session_state[redo_key] = []
 
     with st.expander("🚗🏍️🚐 Desenho dos veículos 🚗🏍️🚐", expanded=False):
         # 3 colunas por linha: melhor encaixe em telas de celular do que 5 colunas.
@@ -736,8 +909,6 @@ def damage():
                         av["diagrama"] = key
                         av["imagem"] = None
                         av["imagem_ok"] = False
-                        st.session_state[f"damage_history_{key}"] = []
-                        st.session_state[f"damage_redo_{key}"] = []
                         st.session_state[f"canvas_version_{key}"] = st.session_state.get(f"canvas_version_{key}", 0) + 1
                         save_current_state()
                         st.rerun()
@@ -764,49 +935,36 @@ def damage():
         stroke_color, draw_mode = "#2563eb", "freedraw"
         st.caption("Amassado.")
 
-    # Tamanho pensado para celular. A resolução do canvas é mantida igual à área
-    # exibida para evitar corte e deslocamento das marcações.
+    # Tamanho original do desenho (400x460). Em celular estreito o navegador só reduz a
+    # exibição para caber na tela (ver CLIENT_JS): a resolução interna do canvas não muda.
     canvas_width = 400
     canvas_height = 460
-
-    if av.get("imagem") and av.get("imagem_ok"):
-        try:
-            base_image = pil_b64(av["imagem"]).resize(
-                (canvas_width, canvas_height), Image.Resampling.LANCZOS
-            )
-        except Exception:
-            base_image = vehicle_diagram(view, size=(canvas_width, canvas_height))
-    else:
-        if av.get("imagem") and not av.get("imagem_ok"):
-            av["imagem"] = None
-        base_image = vehicle_diagram(view, size=(canvas_width, canvas_height))
 
     # IMPORTANTE:
     # O drawable-canvas redimensiona background_image internamente. Em alguns
     # navegadores/Streamlit Cloud isso pode deixar a camada de desenho com
     # coordenadas diferentes da imagem de fundo. Para evitar o deslocamento,
-    # a imagem agora faz parte do próprio Fabric.js como um objeto travado.
-    # Assim, imagem e marcações usam exatamente o mesmo sistema de coordenadas.
-    canvas_base = av.get("imagem") if av.get("imagem") and av.get("imagem_ok") else None
-    if canvas_base:
-        try:
-            canvas_image = pil_b64(canvas_base).resize(
-                (canvas_width, canvas_height), Image.Resampling.LANCZOS
-            )
-        except Exception:
-            canvas_image = base_image
-    else:
-        canvas_image = base_image
-
-    # IMPORTANTE: não recriar o initial_drawing a cada traço.
-    # Se ele muda a cada rerun, o drawable-canvas pode reconstruir o Fabric.js
-    # enquanto o navegador ainda está mostrando o traço recém-feito. Isso causa
-    # o efeito de apagar -> esperar -> aparecer novamente.
-    # Mantemos a imagem inicial estável enquanto o usuário desenha.
+    # a imagem faz parte do próprio Fabric.js como um objeto travado.
+    #
+    # A imagem-base é criada UMA vez por versão do canvas e depois só é lida.
+    # (Antes ela era refeita a cada rerun a partir da imagem já com os traços; assim um
+    # traço desfeito continuava "embutido" no fundo e reaparecia. Essa era uma das causas
+    # de o desfazer não funcionar.)
     canvas_version = st.session_state.get(ver_key, 0)
-    init_key = f"canvas_initial_{view}_{canvas_version}"
+    init_key = f"canvas_initial_{view}_{canvas_version}_{canvas_width}"
+    base_key = init_key + "_base"
     if init_key not in st.session_state:
-        st.session_state[init_key] = canvas_image_drawing(canvas_image)
+        base = vehicle_diagram(view, size=(canvas_width, canvas_height))
+        if av.get("imagem") and av.get("imagem_ok"):
+            try:   # reabrindo a etapa: parte do desenho já salvo
+                base = pil_b64(av["imagem"]).resize((canvas_width, canvas_height), Image.Resampling.LANCZOS)
+            except Exception:
+                pass
+        elif av.get("imagem"):
+            av["imagem"] = None
+        st.session_state[base_key] = base
+        st.session_state[init_key] = canvas_image_drawing(base)
+    base_image = st.session_state[base_key]
     initial_drawing = st.session_state[init_key]
 
     can = st_canvas(
@@ -820,8 +978,18 @@ def damage():
         drawing_mode=draw_mode,
         initial_drawing=initial_drawing,
         key=f"canvas_{view}_{canvas_version}",
-        display_toolbar=False,
+        display_toolbar=True,   # desfazer / refazer / lixeira nativos: o MESMO recurso das assinaturas
     )
+
+    # A lixeira nativa faz canvas.clear(), o que também apagaria o desenho-base do veículo
+    # (ele é um objeto dentro do canvas). Se isso acontecer, recomeçamos com um canvas limpo.
+    if isinstance(can.json_data, dict):
+        tem_base = any(o.get("type") == "image" for o in can.json_data.get("objects", []))
+        seen_key = f"canvas_base_seen_{view}_{canvas_version}"
+        if tem_base:
+            st.session_state[seen_key] = True
+        elif st.session_state.get(seen_key):
+            reset_damage_canvas(av, view)
 
     if can.image_data is not None:
         new_image = canvas_b64(can, base_image)
@@ -829,12 +997,6 @@ def damage():
 
         # Só registra um novo estado quando houve uma alteração real.
         if new_image and new_image != old_image:
-            history = st.session_state[hist_key]
-            if not history or history[-1] != old_image:
-                history.append(old_image)
-                if len(history) > 30:
-                    del history[0]
-            st.session_state[redo_key] = []
             av["imagem"] = new_image
             av["imagem_ok"] = True
 
@@ -860,7 +1022,9 @@ def damage():
                 # presença dos traços vermelho/azul na imagem final.
                 if not marcacoes and av.get("imagem"):
                     try:
-                        img = np.array(pil_b64(av["imagem"]).convert("RGB"))
+                        # int16 (não uint8): com uint8, "rr + 35" dá a volta e pixels BRANCOS passavam
+                        # no filtro de azul, criando avarias fantasmas ("Avaria — Marcada — ...").
+                        img = np.array(pil_b64(av["imagem"]).convert("RGB")).astype("int16")
                         rr, gg, bb = img[:, :, 0], img[:, :, 1], img[:, :, 2]
                         red = (rr > 140) & (rr > gg + 45) & (rr > bb + 45)
                         blue = (bb > 120) & (bb > rr + 35) & (bb > gg + 20)
@@ -893,55 +1057,70 @@ def damage():
 
             # Não gravamos o rascunho em disco a cada traço. Isso adicionava
             # uma operação pesada ao rerun e aumentava o atraso visual.
-            # A navegação, desfazer/refazer e limpeza continuam salvando o estado.
+            # A navegação e o botão Limpar continuam salvando o estado.
 
-    # Controles próprios e funcionais, abaixo do desenho.
-    c1,c2,c3 = st.columns(3)
+    st.caption("Desfazer e refazer: use os ícones do próprio desenho (o mesmo recurso das assinaturas).")
+    if st.button("🗑️ Limpar desenho", key=f"clear_{view}", use_container_width=True, disabled=not av.get("imagem")):
+        reset_damage_canvas(av, view)
 
-    with c1:
-        if st.button("↶ Desfazer", key=f"undo_{view}", use_container_width=True,
-                     disabled=not st.session_state[hist_key]):
-            current = av.get("imagem")
-            if current:
-                st.session_state[redo_key].append(current)
-            previous = st.session_state[hist_key].pop()
-            av["imagem"] = previous
-            av["imagem_ok"] = previous is not None
-            st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
-            st.session_state.pop(f"canvas_initial_{view}_{st.session_state[ver_key]}", None)
-            save_current_state()
-            st.rerun()
-
-    with c2:
-        if st.button("↷ Refazer", key=f"redo_{view}", use_container_width=True,
-                     disabled=not st.session_state[redo_key]):
-            current = av.get("imagem")
-            if current:
-                st.session_state[hist_key].append(current)
-            restored = st.session_state[redo_key].pop()
-            av["imagem"] = restored
-            av["imagem_ok"] = restored is not None
-            st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
-            st.session_state.pop(f"canvas_initial_{view}_{st.session_state[ver_key]}", None)
-            save_current_state()
-            st.rerun()
-
-    with c3:
-        if st.button("🗑️ Limpar", key=f"clear_{view}", use_container_width=True,
-                     disabled=not av.get("imagem")):
-            current = av.get("imagem")
-            if current:
-                st.session_state[hist_key].append(current)
-                if len(st.session_state[hist_key]) > 30:
-                    del st.session_state[hist_key][0]
-            av["imagem"] = None
-            av["imagem_ok"] = False
-            st.session_state[redo_key] = []
-            st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
-            st.session_state.pop(f"canvas_initial_{view}_{st.session_state[ver_key]}", None)
-            save_current_state()
-            st.rerun()
+    st.divider()
+    damage_photos()
     nav()
+
+@st.fragment
+def damage_photos():
+    """Fotos das avarias: quantas o usuário quiser. Cada foto = AVARIA 1, 2, 3...
+    com miniatura, descrição opcional e botão de remover. É um fragmento: adicionar
+    ou remover fotos não recarrega (nem mexe no) desenho do veículo acima."""
+    c = st.session_state.inspection
+    av = c["avarias"]
+    fotos = av.setdefault("fotos", [])
+    n = st.session_state.get("avaria_up_n", 0)   # muda a chave do uploader para limpá-lo após cada envio
+
+    st.subheader("📷 Fotos das avarias")
+    st.caption("Adicione quantas fotos precisar. No celular, o botão abre a câmera ou a galeria. Todas entram no PDF.")
+    if st.session_state.pop("avaria_up_erros", 0):
+        st.error("Alguma foto não pôde ser salva. Tente enviar novamente.")
+
+    novas, erros = [], 0
+    files = st.file_uploader("Adicionar fotos de avarias", type=["jpg","jpeg","png","webp"],
+                             accept_multiple_files=True, key=f"avaria_up_{n}", label_visibility="collapsed")
+    for f in (files or []):
+        try:
+            novas.append({"id": secrets.token_hex(4), "foto": b64_image(f), "descricao": ""})
+        except Exception:
+            erros += 1
+
+    if st.checkbox("Usar câmera direta do navegador (avançado, requer permissão)", key="usar_cam_avaria"):
+        shot = st.camera_input("Tirar foto da avaria", key=f"avaria_cam_{n}", label_visibility="collapsed")
+        if shot is not None:
+            try:
+                novas.append({"id": secrets.token_hex(4), "foto": b64_image(shot), "descricao": ""})
+            except Exception:
+                erros += 1
+
+    if novas or erros:
+        fotos.extend(novas)
+        st.session_state["avaria_up_n"] = n + 1
+        st.session_state["avaria_up_erros"] = erros
+        save_current_state()
+        st.rerun(scope="fragment")
+
+    if fotos:
+        st.caption(f"{len(fotos)} foto(s) de avarias.")
+    for i, item in enumerate(list(fotos)):
+        with st.container(border=True):
+            st.markdown(f"**AVARIA {i+1}**")
+            try:
+                st.image(thumb_bytes(item["foto"]), width=240)
+            except Exception:
+                st.warning("Não foi possível exibir esta foto.")
+            item["descricao"] = text_up("Descrição / local (opcional)", item.get("descricao", ""),
+                                        key=f"avaria_desc_{item['id']}", placeholder="Ex.: PORTA DIANTEIRA ESQUERDA")
+            if st.button("🗑️ Remover foto", key=f"avaria_rm_{item['id']}", use_container_width=True):
+                fotos.remove(item)
+                save_current_state()
+                st.rerun(scope="fragment")
 
 @st.fragment
 def photos():
@@ -1010,22 +1189,32 @@ def photos():
     
     st.markdown('<div class="ac-photo-card-title">📦 Fotos de acessórios</div>', unsafe_allow_html=True)
 
+    # A chave do uploader muda a cada envio: sem isso, o Streamlit continuava devolvendo os
+    # arquivos já enviados e a foto removida voltava sozinha na tela seguinte.
+    n_extra = st.session_state.get("extras_up_n", 0)
     ex=st.file_uploader(
         "Selecione uma ou várias fotos dos acessórios",
         type=["jpg","jpeg","png","webp"],
         accept_multiple_files=True,
-        key="extras",
+        key=f"extras_up_{n_extra}",
         label_visibility="collapsed"
     )
 
     if ex:
-        # Adiciona novas fotos sem apagar as que já foram selecionadas anteriormente.
-        existing = c.get("fotos_acessorios", [])
-        novos = [b64_image(x) for x in ex]
-        c["fotos_acessorios"] = existing + [
-            x for x in novos if x not in existing
-        ]
+        # Adiciona novas fotos sem apagar as que já foram enviadas anteriormente.
+        erros = 0
+        for x in ex:
+            try:
+                c["fotos_acessorios"].append(b64_image(x))
+            except Exception:
+                erros += 1
+        st.session_state["extras_up_n"] = n_extra + 1
         save_current_state()
+        if erros:
+            st.session_state["extras_erros"] = erros
+        st.rerun(scope="fragment")
+    if st.session_state.pop("extras_erros", 0):
+        st.error("Alguma foto de acessório não pôde ser salva.")
 
     if c.get("fotos_acessorios"):
         st.caption(f"{len(c['fotos_acessorios'])} foto(s) de acessórios salva(s).")
@@ -1042,7 +1231,10 @@ def photos():
 
 def signature(title,key,stored):
     st.write(f"**{title}**")
-    can=st_canvas(background_color="#ffffff",stroke_width=2.5,stroke_color="#111827",height=180,width=600,drawing_mode="freedraw",key=key)
+    # Desktop: tamanho original (600x180). Celular: 400x220, área grande para o dedo; se a tela
+    # for mais estreita, o navegador reduz só a exibição (ver CLIENT_JS), sem cortar.
+    sig_w, sig_h = (400, 220) if is_mobile_client() else (600, 180)
+    can=st_canvas(background_color="#ffffff",stroke_width=2.5,stroke_color="#111827",height=sig_h,width=sig_w,drawing_mode="freedraw",key=key)
     if can.image_data is not None:
         arr=can.image_data[:,:,:3]
         if (arr<245).any(): stored=canvas_b64(can)
@@ -1053,7 +1245,7 @@ def signature(title,key,stored):
 def owner():
     p=st.session_state.inspection["proprietario"]; topbar("09 • Proprietário","Nome, CPF, telefone e assinatura.")
     
-    a,b=st.columns(2); p["nome"]=a.text_input("Nome completo",p["nome"]); p["cpf"]=b.text_input("CPF do proprietário",p.get("cpf","")); p["telefone"]=st.text_input("Telefone de contato",p["telefone"]); p["assinatura"]=signature("Assinatura do proprietário / responsável","sig_owner",p["assinatura"])
+    a,b=st.columns(2); p["nome"]=text_up("Nome completo",p["nome"],where=a); p["cpf"]=b.text_input("CPF do proprietário",p.get("cpf","")); p["telefone"]=st.text_input("Telefone de contato",p["telefone"]); p["assinatura"]=signature("Assinatura do proprietário / responsável","sig_owner",p["assinatura"])
     nav(fragment=True)
 
 @st.fragment
@@ -1075,9 +1267,9 @@ def issuer():
     else:
         st.caption("Depois de preencher, os dados poderão ser salvos para as próximas vistorias.")
 
-    a,b=st.columns(2); e["empresa"]=a.text_input("Empresa / Emitente",e["empresa"]); e["documento"]=b.text_input("CNPJ / Documento",e["documento"])
+    a,b=st.columns(2); e["empresa"]=text_up("Empresa / Emitente",e["empresa"],where=a); e["documento"]=b.text_input("CNPJ / Documento",e["documento"])
     a,b=st.columns(2); e["telefone"]=a.text_input("Telefone",e["telefone"]); e["email"]=b.text_input("E-mail",e["email"])
-    e["endereco"]=st.text_input("Endereço",e["endereco"]); e["responsavel"]=st.text_input("Nome do responsável",e["responsavel"]); e["assinatura"]=signature("Assinatura da empresa / emitente","sig_issuer",e["assinatura"])
+    e["endereco"]=text_up("Endereço",e["endereco"]); e["responsavel"]=text_up("Nome do responsável",e["responsavel"]); e["assinatura"]=signature("Assinatura da empresa / emitente","sig_issuer",e["assinatura"])
 
     if st.button("💾 Salvar dados da empresa para próximas vistorias", use_container_width=True):
         dados={campo:e.get(campo,"") for campo in ["empresa","documento","telefone","email","endereco","responsavel"]}
@@ -1102,8 +1294,9 @@ def review():
         ("Combustível",f'{f["tipo"]} • {f["nivel"]} • {f["percentual"]}%'),
         ("Acessórios",f'{sum(1 for x in c["acessorios"].values() if x["status"])} itens avaliados'),
         ("Pneus",f'{sum(1 for x in c["pneus"].values() if x["estado"])} posições avaliadas'),
-        ("Chave e Documentos",f'{1 if c.get("chave_documentos",{}).get("foto") else 0} foto'),
+        ("Chave e Documentos",f'{len([x for x in (c.get("chave_documentos") or {}).values() if x])} foto(s)'),
         ("Fotos",f'{len([x for x in c["fotos"].values() if x])} padrão + {len(c["fotos_acessorios"])} acessórios'),
+        ("Fotos de avarias",f'{len([x for x in c["avarias"].get("fotos", []) if x.get("foto")])} foto(s)'),
         ("Proprietário",f'{c["proprietario"]["nome"] or "Pendente"} • {c["proprietario"].get("cpf","") or "Sem CPF"} • {c["proprietario"]["telefone"] or "Sem telefone"}'),
         ("Emitente",f'{c["emitente"]["empresa"] or "Pendente"} • {c["emitente"]["responsavel"] or "Sem responsável"}')]:
         st.write(f"**{name}:** {val}")
@@ -1111,10 +1304,22 @@ def review():
     if st.button("✓ Finalizar inspeção e preparar PDF",type="primary",use_container_width=True):
         c["inspetor"]=st.session_state.user["nome"]; c["status"]="Concluído"; c["finalizado_em"]=now()
         items=load_json(INSPECTIONS_FILE,[]); items=[x for x in items if x["numero"]!=c["numero"]]; items.append(c); save_json(INSPECTIONS_FILE,items)
-        st.session_state.pdf=pdf_bytes(c)
+        pdf_avisos=[]
+        st.session_state.pdf=pdf_bytes(c, pdf_avisos)
+        st.session_state.pdf_numero=c["numero"]
+        st.session_state.pdf_fp=inspection_fingerprint(c)
+        st.session_state.pdf_avisos=pdf_avisos
         save_pdf_file(c["numero"], st.session_state.pdf)
         st.success("Inspeção finalizada e PDF arquivado no sistema.")
-    if st.session_state.get("pdf"): st.download_button("⬇ Baixar PDF",data=st.session_state.pdf,file_name=c["numero"]+".pdf",mime="application/pdf",type="primary",use_container_width=True)
+    # O PDF só é oferecido se pertencer a ESTA vistoria e refletir os dados atuais
+    # (antes, o botão podia entregar o PDF de outra vistoria ou de antes de novas fotos).
+    pdf_atual = (st.session_state.get("pdf") and st.session_state.get("pdf_numero")==c["numero"])
+    if pdf_atual and st.session_state.get("pdf_fp")!=inspection_fingerprint(c):
+        st.info("A vistoria foi alterada depois de gerar o PDF. Clique em “Finalizar inspeção e preparar PDF” novamente para atualizar.")
+        pdf_atual = False
+    if pdf_atual and st.session_state.get("pdf_avisos"):
+        st.warning("Algumas imagens não puderam ser incluídas no PDF: " + "; ".join(st.session_state.pdf_avisos))
+    if pdf_atual: st.download_button("⬇ Baixar PDF",data=st.session_state.pdf,file_name=c["numero"]+".pdf",mime="application/pdf",type="primary",use_container_width=True)
     nav(fragment=True)
 
 def inicio():
@@ -1148,6 +1353,9 @@ def history():
         with st.expander(f'{x["numero"]} • {v.get("marca","")} {v.get("modelo","")} • {v.get("placa","")}'):
             st.write(f'Inspetor: **{x.get("inspetor","")}** • Finalizado: **{x.get("finalizado_em","")}**')
             path=pdf_path(x["numero"])
+            if st.button("🔄 Gerar PDF novamente com o layout atual", key="regen_"+x["numero"]):
+                save_pdf_file(x["numero"], pdf_bytes(x))
+                st.success("PDF atualizado com o layout atual.")
             if not path.exists():
                 data=pdf_bytes(x)
                 save_pdf_file(x["numero"], data)
@@ -1209,7 +1417,7 @@ def admin_users():
     with st.form("admin_create_user"):
         a,b,c=st.columns(3)
         nu=a.text_input("Novo usuário")
-        nn=b.text_input("Nome completo")
+        nn=text_up("Nome completo",where=b)
         perfil=c.selectbox("Perfil", ["Inspetor","Administrador"])
         a,b=st.columns(2)
         np=a.text_input("Senha", type="password")
@@ -1242,6 +1450,8 @@ def admin_users():
                 save_current_state(); st.rerun()
     
 
+st.markdown(view_marker_html(), unsafe_allow_html=True)
+
 if st.session_state.user is None:
     login_screen()
 else:
@@ -1263,3 +1473,10 @@ else:
     elif st.session_state.step==8: owner()
     elif st.session_state.step==9: issuer()
     elif st.session_state.step==10: review()
+
+# Trocou de etapa/tela (Próxima, Voltar, menu lateral, Início, Histórico...)? Volta ao topo.
+# Cliques dentro da mesma etapa (SIM/NÃO, fotos etc.) não mudam a assinatura: a tela não pula.
+_view_sig = view_signature()
+_prev_sig = st.session_state.get("_view_sig")
+st.session_state["_view_sig"] = _view_sig
+client_helpers(scroll_top=(_prev_sig is not None and _prev_sig != _view_sig))
