@@ -789,30 +789,6 @@ div[class*="st-key-damage_mark_"] button[kind="secondary"] span {
 
 
 /* =========================================================
-   15. TEXTOS DIGITADOS EM MAIÚSCULAS
-   Exibe em maiúsculas enquanto digita; o valor salvo é convertido
-   no app.py (função text_up). E-mail, senha e usuário ficam como digitados.
-   ========================================================= */
-
-.stTextInput input,
-.stTextArea textarea {
-    text-transform: uppercase;
-}
-
-.stTextInput input::placeholder,
-.stTextArea textarea::placeholder {
-    text-transform: none;
-}
-
-.stTextInput input[type="password"],
-.stTextInput input[aria-label*="mail" i],
-.stTextInput input[aria-label*="usuário" i],
-.stTextInput input[aria-label*="usuario" i] {
-    text-transform: none;
-}
-
-
-/* =========================================================
    16. FOTOS DE AVARIAS (07 • Avarias) — botão grande, fácil de tocar
    ========================================================= */
 
