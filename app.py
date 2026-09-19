@@ -24,10 +24,10 @@ DRAFTS_DIR.mkdir(exist_ok=True)
 FUEL_TYPES = ["Gasolina","Etanol","Flex","Diesel","GNV","Elétrico","Híbrido"]
 FUEL_LEVELS = [("Reserva",5),("1/4",25),("1/2",50),("3/4",75),("Cheio",100)]
 ACCESSORIES = [
-    "Veículo envelopado","Blindado","Funciona","Segredo","Chave","Painel","Chave reserva","Manual","Quebra sol","Break light","Retrovisor",
+    "Veículo envelopado","Blindado","Funciona","Segredo","Painel","Quebra sol","Break light","Retrovisor",
     "Macaco","Chave de roda","Estepe","Extintor","Triângulo","Tapetes","Isqueiro","Alto falantes","Aparelho de som",
     "Antena","Faróis auxiliares","Aerofólio","Engate traseiro","Quebra mato","Modulo (carro)","Modulo (som)",
-    "Rack","Estribo","Tampão porta malas","Bateria e marca","Documento","Transferência","Nota fiscal",
+    "Rack","Estribo","Tampão porta malas","Bateria e marca",
     "Veículo limpo","Outros acessórios"
 ]
 TIRES = [("Dianteiro esquerdo","DE"),("Dianteiro direito","DD"),("Traseiro esquerdo","TE"),("Traseiro direito","TD"),("Estepe","ESP")]
@@ -680,7 +680,7 @@ def fuel():
 @st.fragment
 def key_documents():
     c=st.session_state.inspection
-    topbar("04 • Chave e Documentos","Tire uma única foto da chave e dos documentos.")
+    topbar("04 • Chave e Documentos","Tire uma única foto da chave, dos documentos e etc...")
     c.setdefault("chave_documentos", {"foto": None})
     kd=c["chave_documentos"]
 
@@ -691,7 +691,7 @@ def key_documents():
     )
 
     
-    st.markdown('<div class="ac-photo-card-title">📷 Chave e Documentos</div>', unsafe_allow_html=True)
+    st.markdown('<div class="ac-photo-card-title">📷 Chave principal,Chave reserva,Manual e Documentos</div>', unsafe_allow_html=True)
 
     if kd.get("foto"):
         st.image(pil_b64(kd["foto"]), use_container_width=True)
@@ -724,8 +724,8 @@ def key_documents():
             st.rerun()
 
     # Observação opcional (vazia = nada aparece no PDF).
-    c["chave_documentos_obs"] = st.text_area("Observação (opcional)", c.get("chave_documentos_obs", ""),
-                                        key="kd_obs", height=90, placeholder="Ex.: CHAVE COM CHAVEIRO, DOCUMENTO SEM CRLV...")
+    c["chave_documentos_obs"] = st.text_area("Observação (opcional)", c.get("Alguma_obs", ""),
+                                        key="kd_obs", height=90, placeholder="Ex.: CHAVE RESERVA FALTANDO, DOCUMENTO SEM CRLV...")
 
     nav(fragment=True)
 
