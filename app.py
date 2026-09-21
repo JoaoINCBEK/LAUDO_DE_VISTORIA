@@ -60,10 +60,12 @@ def is_mobile_client():
         return False
     return bool(re.search(r"Android|iPhone|iPod|Mobile", ua, re.I))
 
-def pick_or_type(label, options, current, key):
-    """Selectbox com lista pré-definida + opção 'Outro' com campo livre."""
+def pick_or_type(label, options, current, key, allow_blank=False):
+    """Selectbox com lista pré-definida + opção 'Outro' com campo livre.
+    allow_blank=True acrescenta uma 1ª opção em branco: assim o campo pode ficar
+    realmente vazio (e a consulta pela placa consegue preenchê-lo)."""
     outro = "Outro (digitar)"
-    choices = list(options) + [outro]
+    choices = ([""] if allow_blank else []) + list(options) + [outro]
     by_upper = {str(o).upper(): o for o in options}   # compara sem diferenciar maiúsculas/minúsculas
     cur = str(current or "")
     if cur.upper() in by_upper:
@@ -72,7 +74,8 @@ def pick_or_type(label, options, current, key):
         idx = len(choices) - 1  # valor já digitado que não está na lista -> cai em "Outro"
     else:
         idx = 0
-    sel = st.selectbox(label, choices, index=idx, key=key + "_sel")
+    sel = st.selectbox(label, choices, index=idx, key=key + "_sel",
+                       format_func=lambda o: "Selecione..." if o == "" else o)
     if sel == outro:
         return st.text_input(label + " (digite)", cur if cur.upper() not in by_upper else "", key=key + "_free")
     return sel
@@ -599,11 +602,22 @@ def nav(fragment=False):
 
 def get_placa_config():
     """Configuração da consulta de placa (só no servidor). None = desligada."""
+    secret, err = {}, ""
     try:
         secret = dict(st.secrets["placa_api"])
-    except Exception:
-        secret = {}
-    return placa_api.load_config(secret)
+    except KeyError:
+        err = "Seção [placa_api] não encontrada nos Secrets"
+        try:
+            if "VEHICLE_LOOKUP_URL" in st.secrets:
+                err += " (há chaves do formato antigo VEHICLE_LOOKUP_*, que não são mais usadas)"
+        except Exception:
+            pass
+    except FileNotFoundError:
+        err = "Arquivo de Secrets não encontrado"
+    except Exception as exc:
+        # Só o tipo do erro: a mensagem do parser pode conter trechos do arquivo (cookie).
+        err = f"Falha ao ler os Secrets ({type(exc).__name__}) — provável erro de sintaxe TOML"
+    return placa_api.load_config(secret, secrets_error=err)
 
 def plate_lookup_ui(v, placa_antes):
     """Consulta OPCIONAL pela placa. Só preenche campos vazios (ou preenchidos antes
@@ -613,7 +627,7 @@ def plate_lookup_ui(v, placa_antes):
     status = v.get("_placa_status") or {}
     same = status.get("placa") == plate
     retry = False
-    if same and status.get("status") == "unavailable":
+    if same and status.get("status") in ("unavailable", "not_configured"):
         st.warning(status.get("msg") or "Consulta de placa indisponível. Preencha os dados manualmente.")
         retry = st.button("🔄 Tentar consultar novamente", key="placa_retry", use_container_width=True)
     elif same and status.get("msg"):
@@ -626,7 +640,7 @@ def plate_lookup_ui(v, placa_antes):
 
     msg = ""
     if res.status == "not_configured":
-        msg = "Consulta automática de placa não configurada. Preencha os dados manualmente."
+        msg = "Consulta automática de placa não configurada. " + (res.message or "") + " Preencha os dados manualmente."
     elif res.status == "unavailable":
         msg = (res.message or "Consulta indisponível.") + " Preencha manualmente ou tente novamente."
     elif res.status in ("ok", "not_found"):
@@ -638,6 +652,7 @@ def plate_lookup_ui(v, placa_antes):
                 new = found.get(f) or placa_api.NOT_FOUND_TEXT
                 v[f] = new
                 auto[f] = new
+        v["_placa_ver"] = v.get("_placa_ver", 0) + 1
         msg = ("Dados preenchidos pela placa. Confira antes de continuar." if res.status == "ok"
                else "Placa não encontrada. Preencha os dados manualmente.")
     v["_placa_status"] = {"placa": plate, "status": res.status, "msg": msg}
@@ -654,12 +669,13 @@ def vehicle():
 
     placa_antes = v.get("placa", "")
     a,b,d=st.columns(3)
-    with a: v["marca"]=pick_or_type("Marca",VEHICLE_BRANDS,v["marca"],"veic_marca")
+    _ver = v.get("_placa_ver", 0)   # muda quando a consulta da placa preenche: força a lista a exibir o novo valor
+    with a: v["marca"]=pick_or_type("Marca",VEHICLE_BRANDS,v["marca"],f"veic_marca_{_ver}",allow_blank=True)
     v["modelo"] = b.text_input("Modelo", v["modelo"])
     v["placa"] = d.text_input("Placa / Renavam", v["placa"])
     plate_lookup_ui(v, placa_antes)
     a,b,d=st.columns(3)
-    with a: v["ano"]=pick_or_type("Ano",VEHICLE_YEARS,v["ano"],"veic_ano")
+    with a: v["ano"]=pick_or_type("Ano",VEHICLE_YEARS,v["ano"],f"veic_ano_{_ver}",allow_blank=True)
     v["cor"] = b.text_input("Cor", v["cor"])
     v["km"] = d.text_input("Km", v["km"])
     nav(fragment=True)
