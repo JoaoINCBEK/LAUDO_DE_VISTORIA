@@ -9,6 +9,7 @@ from streamlit_drawable_canvas import st_canvas
 from streamlit.errors import StreamlitAPIException
 import pdf_report, placa_api
 
+import unicodedata
 APP = "LAUDO DE VISTORIA"
 DATA_DIR = Path("autocheck_data")
 DATA_DIR.mkdir(exist_ok=True)
@@ -37,10 +38,10 @@ KEY_DOC_ICONS = {"chave_principal":"🔑","chave_reserva":"🗝️","manual":"�
 KEY_DOC_LABELS = dict(KEY_DOC_ITEMS)
 
 VEHICLE_BRANDS = [
-    "Chevrolet","Fiat","Ford","Volkswagen","Toyota","Honda","Hyundai","Renault","Nissan","Jeep",
-    "Peugeot","Citroën","Mitsubishi","Kia","BMW","BYD","Geely","GWM","Mercedes-Benz","Audi","Volvo","Land Rover",
-    "Suzuki","Yamaha","Kawasaki","Triumph","Harley-Davidson","Iveco","Scania","Volvo Trucks",
-    "Mercedes-Benz Caminhões","Agrale","Troller","RAM","Chery/Caoa"
+    "CHEVROLET", "FIAT", "FORD", "VOLKSWAGEN", "TOYOTA", "HONDA", "HYUNDAI", "RENAULT", "NISSAN", "JEEP",
+    "PEUGEOT", "CITROËN", "MITSUBISHI", "KIA", "BMW", "BYD", "GEELY", "GWM", "MERCEDES-BENZ", "AUDI", "VOLVO", "LAND ROVER",
+    "SUZUKI", "YAMAHA", "KAWASAKI", "TRIUMPH", "HARLEY-DAVIDSON", "IVECO", "SCANIA", "VOLVO TRUCKS",
+    "MERCEDES-BENZ CAMINHÕES", "AGRALE", "TROLLER", "RAM", "CHERY/CAOA"
 ]
 TIRE_BRANDS = [
     "Pirelli","Goodyear","Michelin","Continental","Bridgestone","Firestone","Dunlop",
@@ -129,8 +130,8 @@ def new_inspection():
     return {
         "numero": next_inspection_number(),
         "criado_em": now(), "finalizado_em": None, "status":"Em andamento", "inspetor":"",
-        "veiculo": {"marca":"","modelo":"","ano":"","placa":"","cor":"","chassi":"","km":"","observacoes":""},
-        "combustivel":{"tipo":"Gasolina","nivel":"1/2","percentual":50},
+        "veiculo": {"marca":"","modelo":"","ano":"","placa":"","cor":"","tipo":"","chassi":"","km":"","observacoes":""},
+        "combustivel":{"tipo":"","nivel":"1/2","percentual":50},
         "acessorios":{a:{"status":"","obs":""} for a in ACCESSORIES},
         "chave_documentos":{"foto": None}, "chave_documentos_obs":"",
         "pneus":{k:{"estado":"","marca":"","medida":"","observacao":""} for _,k in TIRES},
@@ -652,6 +653,25 @@ def plate_lookup_ui(v, placa_antes):
                 new = found.get(f) or placa_api.NOT_FOUND_TEXT
                 v[f] = new
                 auto[f] = new
+
+        # O formulário mantém combustível em uma seção própria.
+        # IMPORTANTE: preservamos EXATAMENTE o texto retornado pelo Placa FIPE.
+        # Ex.: "GASOLINA/ALCOOL/ELETRICO" não vira "Híbrido" nem "Gasolina".
+        fuel_data = st.session_state.inspection.setdefault("combustivel", {})
+        fuel_from_plate = str(found.get("combustivel", "") or "").strip()
+
+        if fuel_from_plate:
+            fuel_data["_placa_auto"] = fuel_from_plate
+            # Guarda o valor bruto retornado pelo site. A etapa 03 vai
+            # acrescentá-lo temporariamente às opções do selectbox quando
+            # ele não existir em FUEL_TYPES.
+            fuel_data["tipo"] = fuel_from_plate
+        else:
+            # Se a consulta não trouxe combustível, não assumimos Gasolina.
+            # O usuário poderá escolher manualmente na etapa 03.
+            fuel_data["_placa_auto"] = ""
+            fuel_data["tipo"] = ""
+
         v["_placa_ver"] = v.get("_placa_ver", 0) + 1
         msg = ("Dados preenchidos pela placa. Confira antes de continuar." if res.status == "ok"
                else "Placa não encontrada. Preencha os dados manualmente.")
@@ -670,21 +690,66 @@ def vehicle():
     placa_antes = v.get("placa", "")
     a,b,d=st.columns(3)
     _ver = v.get("_placa_ver", 0)   # muda quando a consulta da placa preenche: força a lista a exibir o novo valor
-    with a: v["marca"]=pick_or_type("Marca",VEHICLE_BRANDS,v["marca"],f"veic_marca_{_ver}",allow_blank=True)
-    v["modelo"] = b.text_input("Modelo", v["modelo"])
-    v["placa"] = d.text_input("Placa / Renavam", v["placa"])
+    v["placa"] = a.text_input("Placa / Renavam", v["placa"]).upper()
+    with b: v["marca"]=pick_or_type("Marca",VEHICLE_BRANDS,v["marca"],f"veic_marca_{_ver}",allow_blank=True)
+    v["modelo"] = d.text_input("Modelo", v["modelo"])
     plate_lookup_ui(v, placa_antes)
     a,b,d=st.columns(3)
     with a: v["ano"]=pick_or_type("Ano",VEHICLE_YEARS,v["ano"],f"veic_ano_{_ver}",allow_blank=True)
     v["cor"] = b.text_input("Cor", v["cor"])
     v["km"] = d.text_input("Km", v["km"])
+    # "Tipo de veículo" não aparece mais aqui (a pedido). O valor de v["tipo"]
+    # continua existindo e sendo preenchido pela consulta de placa quando
+    # disponível — ele só não tem mais um campo editável nesta etapa. Outras
+    # partes do sistema (ex.: diagrama de avarias) continuam usando v["tipo"]
+    # normalmente.
     nav(fragment=True)
 
 @st.fragment
 def fuel():
     c=st.session_state.inspection; f=c["combustivel"]; topbar("03 • Combustível","Tipo, nível e percentual exato.")
-    
-    f["tipo"]=st.selectbox("Tipo de combustível",FUEL_TYPES,index=FUEL_TYPES.index(f["tipo"]))
+
+    # A consulta da placa incrementa _placa_ver. Usamos essa versão na chave
+    # do widget para criar uma nova chave quando um combustível automático
+    # acabou de chegar. Antes de criar o selectbox, colocamos o valor exato
+    # da opção na própria chave do widget. Assim o Streamlit não reaproveita
+    # uma seleção antiga e o combustível vindo da placa aparece selecionado.
+    _fuel_ver = c["veiculo"].get("_placa_ver", 0)
+    _fuel_key = f"combustivel_tipo_{_fuel_ver}"
+
+    current_fuel = str(f.get("tipo", "") or "").strip()
+
+    # Mantém as opções padrão e, quando a consulta da placa retorna um texto
+    # específico que não existe na lista, adiciona esse texto somente nesta
+    # consulta. Ex.: GASOLINA/ALCOOL/ELETRICO.
+    fuel_options = list(FUEL_TYPES)
+    if current_fuel and not any(
+        option.strip().casefold() == current_fuel.casefold()
+        for option in fuel_options
+    ):
+        fuel_options.append(current_fuel)
+
+    fuel_match = next(
+        (fuel_name for fuel_name in fuel_options
+         if fuel_name.strip().casefold() == current_fuel.casefold()),
+        None,
+    )
+
+    # A chave muda quando uma nova consulta de placa termina, evitando que
+    # o Streamlit reaproveite a seleção anterior do selectbox.
+    if _fuel_key not in st.session_state:
+        st.session_state[_fuel_key] = fuel_match if fuel_match else None
+
+    selected_fuel = st.selectbox(
+        "Tipo de combustível",
+        fuel_options,
+        index=(fuel_options.index(fuel_match) if fuel_match is not None else None),
+        key=_fuel_key,
+        placeholder="Selecione o tipo de combustível",
+    )
+    if selected_fuel:
+        f["tipo"] = selected_fuel
+
     st.subheader("Nível do tanque"); cols=st.columns(5)
     for col,(lab,pct) in zip(cols,FUEL_LEVELS):
         with col:
