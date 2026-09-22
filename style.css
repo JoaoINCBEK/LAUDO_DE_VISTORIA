@@ -629,15 +629,16 @@ div[class*="st-key-damage_mark_"] button[kind="secondary"] span {
    existam por baixo) e escrevemos "Tirar" uma única vez, no próprio botão. */
 [data-testid="stFileUploaderDropzone"] button {
     position: relative !important;
-    width: auto !important;
+    width: 100% !important;          /* era "auto" — agora estica até a largura do container */
+    box-sizing: border-box !important; /* padding não estoura a largura pra fora da tela */
     background: var(--ac-orange) !important;
     color: transparent !important;
     font-size: 0 !important;
     border: none !important;
-    border-radius: 8px !important;
+    border-radius: 5px !important;
     min-height: 40px !important;
     height: 40px !important;
-    padding: 0 18px !important;
+    padding: 0 18px !important;      /* voltou ao normal — o 180px estava empurrando a largura à força */
     font-weight: 700 !important;
     box-shadow: none !important;
 }
@@ -651,7 +652,7 @@ div[class*="st-key-damage_mark_"] button[kind="secondary"] span {
 }
 
 [data-testid="stFileUploaderDropzone"] button::after {
-    content: "Tirar" !important;
+    content: "Tirar foto agora" !important;
     display: inline-block !important;
     position: absolute !important;
     top: 50% !important;
