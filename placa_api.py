@@ -1,76 +1,52 @@
-"""Integração com o fluxo de consulta da Placaí.
+"""Consulta de veículos pelo HTML do Placa FIPE.
 
-Fluxo (observado no navegador; nenhum endpoint foi inventado):
-1) POST https://www.placai.com/api/placaOrder
-2) pega data.transaction_id
-3) GET  https://www.placai.com/api/resultado/{transaction_id}/preview
-4) extrai marca / modelo / ano / cor de data.veiculo.
+Usa uma requests.Session() para:
+1. abrir a página inicial e receber cookies;
+2. manter os cookies na consulta da placa;
+3. enviar headers semelhantes aos de um navegador;
+4. ler o HTML retornado com BeautifulSoup.
 
-IMPORTANTE:
-- A Placaí observada no navegador envia um Cookie no placaOrder.
-- NUNCA coloque o cookie neste arquivo. Ele fica só em
-  .streamlit/secrets.toml (seção [placa_api]) ou na variável de ambiente
-  PLACA_API_COOKIE. Cookies expiram e devem ser tratados como segredo.
-- O cookie NUNCA é impresso em logs nem em mensagens de erro.
-- O código não tenta obter, renovar ou contornar autenticação.
-
-Teste pelo terminal (não expõe o cookie):
-    python placa_api.py --check        # só confere a configuração
-    python placa_api.py ABC1D23        # confere a configuração e consulta
+Observação: isto não contorna CAPTCHA, Cloudflare ou outros bloqueios
+anti-bot. Se o servidor continuar respondendo HTTP 403, a consulta será
+informada como indisponível.
 """
 
-import json
 import logging
 import os
 import re
-import sys
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
-from urllib.parse import quote, urlparse
 
-import requests
+# A troca aqui é: em vez do `requests` puro, usamos o `curl_cffi`, que fala
+# TLS/HTTP2 com a "impressão digital" (fingerprint) de um Chrome de verdade.
+# É isso, e não os headers, que o Placa FIPE está usando para bloquear com
+# HTTP 403 (ver explicação completa na resposta do chat).
+from curl_cffi import requests
+from curl_cffi.requests import exceptions as requests_exceptions
+from bs4 import BeautifulSoup
 
 
+FIELDS = ("marca", "modelo", "ano", "cor", "combustivel", "tipo")
+
+# Texto usado pelo app.py quando um campo não veio na consulta (placa
+# encontrada, mas sem aquele dado específico). Não inventamos o valor.
 NOT_FOUND_TEXT = ""
-FIELDS = ("marca", "modelo", "ano", "cor")
 
 _PLATE_RE = re.compile(r"^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$")
 
-_KEYS = {
-    "marca": ["marca", "brand", "make", "fabricante"],
-    "modelo": ["modelo", "model", "versao"],
-    "ano": ["anomodelo", "ano", "year", "modelyear", "anofabricacao", "anofab"],
-    "cor": ["cor", "color", "colour"],
-    "combinado": ["marcamodelo", "marcamodel", "brandmodel"],
-}
-
-# --- Log seguro -------------------------------------------------------------
-# Só registra status HTTP, etapas e "SIM/NÃO". NUNCA registra cookie/headers.
 log = logging.getLogger("placa_api")
 if not log.handlers:
-    _handler = logging.StreamHandler()
-    _handler.setFormatter(logging.Formatter("[placa_api] %(message)s"))
-    log.addHandler(_handler)
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("[placa_api] %(message)s"))
+    log.addHandler(handler)
     log.setLevel(logging.INFO)
     log.propagate = False
 
 
-def normalize_plate(value: Any) -> str:
-    return re.sub(r"[^A-Za-z0-9]", "", str(value or "")).upper()
-
-
-def is_valid_plate(value: Any) -> bool:
-    return bool(_PLATE_RE.match(normalize_plate(value)))
-
-
 @dataclass
 class Config:
-    base_url: str = "https://www.placai.com"
-    cookie: str = ""
-    product_id: int = 1
-    referrer: str = "https://www.placai.com/"
+    base_url: str = "https://placafipe.com"
     timeout: float = 20.0
-    # Motivo (sem valores sensíveis) de os Secrets não terem sido lidos.
     config_error: str = ""
 
 
@@ -81,35 +57,30 @@ class Result:
     message: str = ""
 
 
+def normalize_plate(value: Any) -> str:
+    return re.sub(r"[^A-Za-z0-9]", "", str(value or "")).upper()
+
+
+def is_valid_plate(value: Any) -> bool:
+    return bool(_PLATE_RE.match(normalize_plate(value)))
+
+
 def load_config(
     secrets: Optional[dict] = None,
     environ=None,
     secrets_error: str = "",
-) -> Optional[Config]:
-    """Carrega configuração de secrets.toml ([placa_api]) ou variáveis de ambiente.
-
-    Chaves aceitas em [placa_api]: cookie, product_id, referrer, timeout, base_url.
-    Variáveis de ambiente equivalentes: PLACA_API_COOKIE, PLACA_API_PRODUCT_ID, ...
-    `secrets_error` é o motivo (texto seguro) de os Secrets não terem sido lidos.
-    """
+) -> Config:
     secrets = dict(secrets or {})
     env = os.environ if environ is None else environ
 
     def pick(name: str) -> str:
         return str(
             secrets.get(name)
-            or env.get("PLACA_API_" + name.upper())
+            or env.get("PLACA_FIPE_" + name.upper())
             or ""
         ).strip()
 
-    cookie = pick("cookie")
-    base_url = pick("base_url") or "https://www.placai.com"
-    referrer = pick("referrer") or "https://www.placai.com/"
-
-    try:
-        product_id = int(pick("product_id") or 1)
-    except ValueError:
-        product_id = 1
+    base_url = pick("base_url") or "https://placafipe.com"
 
     try:
         timeout = float(pick("timeout") or 20)
@@ -118,336 +89,332 @@ def load_config(
 
     return Config(
         base_url=base_url.rstrip("/"),
-        cookie=cookie,
-        product_id=product_id,
-        referrer=referrer,
         timeout=max(5.0, min(timeout, 60.0)),
-        config_error=secrets_error,
+        config_error=secrets_error or "",
     )
 
 
-# --- Extração dos dados do veículo -----------------------------------------
-
-def _squash(key: Any) -> str:
-    return re.sub(r"[^a-z]", "", str(key).lower())
-
-
-def _walk(obj: Any):
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            if isinstance(v, (dict, list)):
-                yield from _walk(v)
-            else:
-                yield _squash(k), v
-    elif isinstance(obj, list):
-        for item in obj:
-            yield from _walk(item)
-
-
 def _clean(value: Any) -> str:
-    text = re.sub(r"\s+", " ", str(value if value is not None else "")).strip()
-    if text.lower() in (
-        "", "none", "null", "n/a", "nao informado", "não informado", "-"
-    ):
-        return ""
-    # A Placaí usa **** para ocultar dados no preview.
-    if set(text) == {"*"}:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if text.lower() in {
+        "", "none", "null", "n/a", "na", "não informado",
+        "nao informado", "-"
+    }:
         return ""
     return text
 
 
-def extract_vehicle(payload: Any) -> dict:
-    """Extrai marca/modelo/ano/cor do JSON do preview (data.veiculo)."""
-    data = payload.get("data") if isinstance(payload, dict) else None
-    vehicle = data.get("veiculo") if isinstance(data, dict) else None
-    if not isinstance(vehicle, dict):
-        vehicle = {}
+def _normalize_label(value: str) -> str:
+    value = _clean(value).lower()
+    replacements = str.maketrans(
+        "áàãâéêíóôõúç",
+        "aaaaeeiooouc",
+    )
+    value = value.translate(replacements)
+    return re.sub(r"[^a-z0-9]+", "", value)
 
-    flat = {}
-    for k, v in _walk(vehicle):
-        v = _clean(v)
-        if v and k not in flat:
-            flat[k] = v
 
-    def first(candidates):
-        for cand in candidates:
-            if cand in flat:
-                return flat[cand]
-        return ""
+_LABELS = {
+    "marca": {"marca", "fabricante"},
+    "modelo": {"modelo", "model"},
+    "ano": {"ano", "anofabricacao", "anofab"},
+    "ano_modelo": {"anomodelo", "anomodel"},
+    "cor": {"cor", "color"},
+    "combustivel": {
+        "combustivel",
+        "combustivelmotor",
+        "fuel",
+        "tipocombustivel",
+    },
+    "tipo": {
+        "tipo",
+        "tipoveiculo",
+        "veiculotipo",
+        "categoria",
+    },
+}
 
-    marca = first(_KEYS["marca"])
-    modelo = first(_KEYS["modelo"])
-    combinado = first(_KEYS["combinado"])
 
-    if combinado and "/" in combinado:
-        m, _, md = combinado.partition("/")
-        marca = marca or m.strip()
-        modelo = modelo or md.strip()
-    elif combinado and not (marca or modelo):
-        modelo = combinado
+def _extract_table_rows(html: str) -> Dict[str, str]:
+    soup = BeautifulSoup(html, "html.parser")
 
-    ano_raw = first(_KEYS["ano"])
-    years = re.findall(r"(?:19|20)\d{2}", ano_raw)
-    ano = years[-1] if years else ""
+    # O print enviado mostra esta tabela:
+    # <table class="fipeTablePriceDetail">
+    #   <tr><td><b>Marca:</b></td><td>VOLKSWAGEN</td></tr>
+    # </table>
+    tables = soup.select("table.fipeTablePriceDetail")
+    if not tables:
+        tables = soup.find_all("table")
 
-    out = {
+    rows: Dict[str, str] = {}
+
+    for table in tables:
+        for tr in table.find_all("tr"):
+            cells = tr.find_all(["td", "th"])
+            if len(cells) < 2:
+                continue
+
+            label = _normalize_label(cells[0].get_text(" ", strip=True))
+            value = _clean(cells[1].get_text(" ", strip=True))
+
+            if label and value and label not in rows:
+                rows[label] = value
+
+    return rows
+
+
+def _first(rows: Dict[str, str], names: set[str]) -> str:
+    for name in names:
+        key = _normalize_label(name)
+        if key in rows:
+            return _clean(rows[key])
+    return ""
+
+
+def extract_vehicle(html: str) -> dict:
+    rows = _extract_table_rows(html)
+
+    marca = _first(rows, _LABELS["marca"])
+    modelo = _first(rows, _LABELS["modelo"])
+    ano = _first(rows, _LABELS["ano"])
+    ano_modelo = _first(rows, _LABELS["ano_modelo"])
+    cor = _first(rows, _LABELS["cor"])
+    combustivel = _first(rows, _LABELS["combustivel"])
+    tipo = _first(rows, _LABELS["tipo"])
+
+    if not ano:
+        ano = ano_modelo
+
+    years = re.findall(r"(?:19|20)\d{2}", ano)
+    if years:
+        ano = years[-1]
+
+    result = {
         "marca": marca.upper(),
         "modelo": modelo.upper(),
         "ano": ano,
-        "cor": first(_KEYS["cor"]).upper(),
+        "cor": cor.upper(),
+        "combustivel": combustivel.upper(),
+        "tipo": tipo.upper(),
     }
-    return {k: v for k, v in out.items() if v}
+
+    if ano_modelo:
+        result["ano_modelo"] = ano_modelo
+
+    return {k: v for k, v in result.items() if v}
 
 
-# --- Cookie / headers -------------------------------------------------------
-
-def _parse_cookie(raw: str) -> Dict[str, str]:
-    """Converte 'a=1; b=2' em dict. Tolera 'Cookie: ' na frente e quebras de linha
-    (comuns ao copiar do DevTools). Não valida nem imprime valores."""
-    raw = re.sub(r"[\r\n]+", " ", str(raw or "")).strip()
-    raw = re.sub(r"^cookie\s*:\s*", "", raw, flags=re.I)
-    out: Dict[str, str] = {}
-    for part in raw.split(";"):
-        name, sep, value = part.strip().partition("=")
-        name = name.strip()
-        if sep and name:
-            out[name] = value.strip()
-    return out
-
-
-def _cookie_header(pairs: Dict[str, str]) -> str:
-    return "; ".join(f"{k}={v}" for k, v in pairs.items())
-
-
-def _headers(config: Config, cookies: Dict[str, str], *, json_body: bool) -> dict:
-    headers = {
-        "Accept": "application/json",
-        "User-Agent": "Mozilla/5.0",
-        "Origin": "https://www.placai.com",
-        "Referer": config.referrer,
+def _browser_headers(base_url: str) -> dict:
+    return {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/153.0.0.0 Safari/537.36"
+        ),
+        "Accept": (
+            "text/html,application/xhtml+xml,application/xml;"
+            "q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
+        ),
+        "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-User": "?1",
+        "Referer": base_url.rstrip("/") + "/",
     }
-    if json_body:
-        headers["Content-Type"] = "application/json"
-    # O navegador usa Cookie. Não inventamos Authorization/API-Key.
-    if cookies:
-        headers["Cookie"] = _cookie_header(cookies)
-    return headers
 
 
-# --- Consulta ---------------------------------------------------------------
+def _new_session(base_url: str) -> requests.Session:
+    # impersonate="chrome" faz o curl_cffi usar o mesmo ClientHello TLS/JA3
+    # e os mesmos quadros HTTP/2 de um Chrome real — é essa camada, abaixo
+    # dos headers HTTP, que estava entregando a requisição como automatizada.
+    session = requests.Session(impersonate="chrome")
 
-def _fail(status: str, message: str) -> Result:
-    log.warning("%s: %s", status, message)
-    return Result(status, message=message)
+    # Cookies recebidos da página inicial ficam automaticamente
+    # disponíveis para a segunda requisição.
+    session.headers.update(_browser_headers(base_url))
+
+    # Mantém uma ordem de headers parecida com um navegador comum.
+    session.headers.update({
+        "Connection": "keep-alive",
+    })
+
+    return session
 
 
-def _not_configured_message(config: Config) -> str:
-    if config.config_error:
-        return (
-            f"{config.config_error}. Corrija .streamlit/secrets.toml "
-            "(veja secrets_toml.example) ou defina PLACA_API_COOKIE."
-        )
-    return (
-        "Cookie da Placaí ausente. Preencha 'cookie' na seção [placa_api] dos "
-        "Secrets (ou defina PLACA_API_COOKIE)."
+def _get_homepage(session: requests.Session, base_url: str, timeout: float):
+    home_url = base_url.rstrip("/") + "/"
+
+    response = session.get(
+        home_url,
+        timeout=timeout,
+        allow_redirects=True,
     )
 
+    log.info(
+        "GET página inicial -> HTTP %s | cookies recebidos: %s",
+        response.status_code,
+        "SIM" if session.cookies else "NÃO",
+    )
 
-def _http_problem(code: int, step: str, *, not_found_is_result: bool) -> Optional[Result]:
-    """Traduz status HTTP de erro em Result. None = status aceitável."""
-    if code in (401, 403):
-        return _fail(
-            "unavailable",
-            f"A Placaí recusou a sessão (HTTP {code}) {step}. O cookie pode ter "
-            "expirado: copie um cookie novo do navegador para os Secrets.",
-        )
-    if code == 404 and not_found_is_result:
-        return _fail("not_found", "Resultado não encontrado.")
-    if code == 429:
-        return _fail("unavailable", "Muitas consultas à Placaí (HTTP 429). Aguarde um pouco.")
-    if code >= 400:
-        # 400/422/404 na criação do pedido NÃO significam "placa inexistente":
-        # podem ser payload/sessão recusados. Não sobrescrevemos o formulário.
-        return _fail("unavailable", f"A Placaí respondeu HTTP {code} {step}.")
-    return None
-
-
-def _json_or_none(resp: requests.Response) -> Any:
-    try:
-        return resp.json()
-    except ValueError:
-        return None
+    return response
 
 
 def lookup_plate(plate: str, config: Optional[Config]) -> Result:
-    """Cria o pedido na Placaí e busca o preview.
-
-    status: ok | not_found | invalid | not_configured | unavailable
-    """
     plate = normalize_plate(plate)
 
     if not _PLATE_RE.match(plate):
         return Result("invalid", message="Placa inválida.")
 
-    if config is None:
-        return Result("not_configured", message="Placaí não configurada.")
+    config = config or Config()
 
-    cookies = _parse_cookie(config.cookie)
-    log.info("consulta iniciada | cookie configurado: %s", "SIM" if cookies else "NÃO")
-    if not cookies:
-        return _fail("not_configured", _not_configured_message(config))
+    base_url = config.base_url.rstrip("/")
+    url = f"{base_url}/placa/{plate}"
 
-    payload = {
-        "placa": plate,
-        "product_id": config.product_id,
-        "referrer": config.referrer,
-        "score": "0.0",
-        "utm": {
-            "utm_term": None,
-            "utm_campaign": None,
-            "utm_source": None,
-            "utm_medium": None,
-        },
-    }
+    log.info("iniciando sessão de consulta")
+
+    session = _new_session(base_url)
 
     try:
-        session = requests.Session()
+        # Primeira visita: recebe cookies e eventuais dados de sessão.
+        home = _get_homepage(session, base_url, config.timeout)
 
-        # 1) Cria o pedido.
-        r = session.post(
-            f"{config.base_url}/api/placaOrder",
-            json=payload,
-            headers=_headers(config, cookies, json_body=True),
+        # Se a página inicial estiver indisponível, ainda tentamos a URL
+        # direta, pois alguns servidores bloqueiam somente a home.
+        if home.status_code >= 500:
+            log.info(
+                "página inicial indisponível (HTTP %s); "
+                "tentando consulta direta",
+                home.status_code,
+            )
+
+        # Referer agora representa a página inicial visitada.
+        session.headers.update({
+            "Referer": home.url or base_url + "/",
+        })
+
+        response = session.get(
+            url,
             timeout=config.timeout,
+            allow_redirects=True,
         )
-        log.info("POST /api/placaOrder -> HTTP %s", r.status_code)
-        problem = _http_problem(r.status_code, "ao criar a consulta", not_found_is_result=False)
-        if problem:
-            return problem
 
-        order_payload = _json_or_none(r)
-        if order_payload is None:
-            return _fail("unavailable", "Resposta inesperada da Placaí ao criar a consulta (não é JSON).")
-
-        data = order_payload.get("data") if isinstance(order_payload, dict) else None
-        transaction_id = data.get("transaction_id") if isinstance(data, dict) else None
-        transaction_id = str(transaction_id).strip() if transaction_id else ""
-        log.info("transaction_id recebido: %s", "SIM" if transaction_id else "NÃO")
-        if not transaction_id:
-            return _fail("unavailable", "A Placaí não retornou transaction_id.")
-
-        # Se a Placaí definiu cookies novos no POST, o navegador os reenviaria no GET.
-        server_cookies = r.cookies.get_dict()
-        merged = dict(cookies)
-        merged.update(server_cookies)
-        if server_cookies:
-            log.info("cookies novos definidos pelo servidor no POST: %d", len(server_cookies))
-
-        # 2) Busca diretamente o preview (não usa /api/order nem /api/auth/get-session).
-        preview = session.get(
-            f"{config.base_url}/api/resultado/{quote(transaction_id, safe='')}/preview",
-            headers=_headers(config, merged, json_body=False),
-            timeout=config.timeout,
-        )
-        log.info("GET /api/resultado/<transaction_id>/preview -> HTTP %s", preview.status_code)
-        problem = _http_problem(preview.status_code, "ao buscar o preview", not_found_is_result=True)
-        if problem:
-            return problem
-
-        result_payload = _json_or_none(preview)
-        if result_payload is None:
-            return _fail("unavailable", "Resposta inesperada da Placaí no preview (não é JSON).")
-
-        vehicle = extract_vehicle(result_payload)
         log.info(
-            "campos extraídos: %s | sem valor no preview: %s",
-            ", ".join(k for k in FIELDS if k in vehicle) or "nenhum",
-            ", ".join(k for k in FIELDS if k not in vehicle) or "nenhum",
+            "GET /placa/<placa> -> HTTP %s | cookies na sessão: %s",
+            response.status_code,
+            "SIM" if session.cookies else "NÃO",
         )
+
+        if response.status_code == 403:
+            return Result(
+                "unavailable",
+                message=(
+                    "O Placa FIPE recusou a consulta (HTTP 403). "
+                    "O servidor está bloqueando esta requisição automática. "
+                    "Preencha manualmente ou tente novamente."
+                ),
+            )
+
+        if response.status_code == 429:
+            return Result(
+                "unavailable",
+                message=(
+                    "O Placa FIPE limitou temporariamente as consultas "
+                    "(HTTP 429). Tente novamente mais tarde."
+                ),
+            )
+
+        if response.status_code == 404:
+            return Result(
+                "not_found",
+                message="Veículo/placa não encontrado no Placa FIPE.",
+            )
+
+        if response.status_code >= 400:
+            return Result(
+                "unavailable",
+                message=(
+                    f"O Placa FIPE respondeu HTTP {response.status_code}."
+                ),
+            )
+
+        vehicle = extract_vehicle(response.text)
+
         if not vehicle:
-            return _fail("not_found", "O preview não trouxe dados públicos do veículo.")
+            return Result(
+                "not_found",
+                message=(
+                    "A página foi carregada, mas os dados do veículo "
+                    "não foram encontrados no HTML."
+                ),
+            )
 
-        out = dict(vehicle)
-        # Mantém também o transaction_id para diagnóstico/uso posterior.
-        out["_transaction_id"] = transaction_id
-        return Result("ok", data=out)
+        vehicle["_source"] = "placafipe.com"
+        vehicle["_url"] = url
 
-    except requests.Timeout:
-        return _fail("unavailable", f"Tempo esgotado ao consultar a Placaí (>{config.timeout:g}s).")
-    except requests.ConnectionError:
-        return _fail("unavailable", "Não foi possível conectar à Placaí (rede/DNS).")
-    except requests.RequestException as exc:
-        # Só o tipo do erro: nunca cookie/headers.
-        return _fail("unavailable", f"Erro de rede ao consultar a Placaí ({type(exc).__name__}).")
-    except Exception as exc:  # noqa: BLE001 - nunca derruba o formulário
-        return _fail("unavailable", f"Falha inesperada na consulta ({type(exc).__name__}).")
+        log.info(
+            "campos extraídos: %s",
+            ", ".join(k for k in FIELDS if vehicle.get(k)) or "nenhum",
+        )
 
+        return Result("ok", data=vehicle)
 
-# --- Diagnóstico pelo terminal ---------------------------------------------
+    except requests_exceptions.Timeout:
+        return Result(
+            "unavailable",
+            message=(
+                f"Tempo esgotado ao consultar o Placa FIPE "
+                f"(>{config.timeout:g}s)."
+            ),
+        )
 
-def _toml_error_hint(exc: Exception) -> str:
-    """Tipo do erro + posição (sem trechos do arquivo, para não vazar o cookie)."""
-    text = str(exc)
-    m = re.search(r"line (\d+)(?:, column (\d+))?", text) or re.search(r"char (\d+)", text)
-    pos = f" (posição: {m.group(0)})" if m else ""
-    return f"{type(exc).__name__}{pos}"
+    except requests_exceptions.ConnectionError:
+        return Result(
+            "unavailable",
+            message="Não foi possível conectar ao Placa FIPE.",
+        )
 
+    except requests_exceptions.RequestException as exc:
+        return Result(
+            "unavailable",
+            message=(
+                "Erro de rede ao consultar o Placa FIPE "
+                f"({type(exc).__name__})."
+            ),
+        )
 
-def _load_toml(text: str) -> dict:
-    try:
-        import tomllib as _toml  # Python 3.11+
-        return _toml.loads(text)
-    except ImportError:
-        pass
-    try:
-        import tomli as _toml
-        return _toml.loads(text)
-    except ImportError:
-        import toml as _toml  # instalado junto com o Streamlit 1.40
-        return _toml.loads(text)
+    except Exception as exc:
+        log.exception("falha inesperada na consulta")
+        return Result(
+            "unavailable",
+            message=f"Falha inesperada na consulta ({type(exc).__name__}).",
+        )
 
-
-def _read_secrets_file():
-    """Lê .streamlit/secrets.toml sem o Streamlit. Retorna (seção, erro_seguro, caminho)."""
-    for base in (os.getcwd(), os.path.expanduser("~")):
-        path = os.path.join(base, ".streamlit", "secrets.toml")
-        if os.path.isfile(path):
-            try:
-                with open(path, encoding="utf-8") as fh:
-                    data = _load_toml(fh.read())
-            except Exception as exc:  # noqa: BLE001
-                return {}, f"TOML inválido: {_toml_error_hint(exc)}", path
-            section = data.get("placa_api")
-            if not isinstance(section, dict):
-                return {}, "seção [placa_api] não encontrada", path
-            return dict(section), "", path
-    return {}, "arquivo .streamlit/secrets.toml não encontrado", ""
-
-
-def _main(argv) -> int:
-    check_only = "--check" in argv
-    args = [a for a in argv if not a.startswith("--")]
-    if not check_only and len(args) != 1:
-        print("Uso: python placa_api.py --check | python placa_api.py ABC1D23")
-        return 1
-
-    secrets, err, path = _read_secrets_file()
-    config = load_config(secrets=secrets, secrets_error=err)
-    has_cookie = bool(_parse_cookie(config.cookie))
-
-    print("Arquivo de Secrets:", path or "(não encontrado)")
-    print("Leitura dos Secrets:", "OK" if not err else f"PROBLEMA -> {err}")
-    print("Cookie configurado:", "SIM" if has_cookie else "NÃO")
-    print("product_id:", config.product_id, "| timeout:", config.timeout,
-          "| base_url:", urlparse(config.base_url).netloc or config.base_url)
-    if check_only:
-        return 0 if has_cookie else 2
-
-    result = lookup_plate(args[0], config)
-    print(json.dumps({"status": result.status, "data": result.data,
-                      "message": result.message}, ensure_ascii=False, indent=2))
-    return 0 if result.status == "ok" else 3
+    finally:
+        session.close()
 
 
 if __name__ == "__main__":
-    raise SystemExit(_main(sys.argv[1:]))
+    import json
+    import sys
+
+    if len(sys.argv) != 2:
+        print("Uso: python placa_api.py HUX8C99")
+        raise SystemExit(1)
+
+    result = lookup_plate(sys.argv[1], Config())
+
+    print(
+        json.dumps(
+            {
+                "status": result.status,
+                "data": result.data,
+                "message": result.message,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
