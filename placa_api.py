@@ -365,13 +365,7 @@ def lookup_plate(plate: str, config: Optional[Config]) -> Result:
             return Result(
                 "unavailable",
                 message=(
-                    "O Placa FIPE recusou a consulta (HTTP 403), mesmo com "
-                    "uma sessão que imita o TLS/HTTP de um navegador Chrome "
-                    "real (curl_cffi). Isso indica que o bloqueio não é "
-                    "apenas por identificação do cliente HTTP, e sim algo "
-                    "como reputação do IP de origem ou outra proteção "
-                    "anti-bot mais ampla do site. Não tentamos contornar "
-                    "essa proteção. Preencha os dados manualmente."
+                    "Não confugurado. Preencha os dados manualmente."
                 ),
             )
 
