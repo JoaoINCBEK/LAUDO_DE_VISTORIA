@@ -30,7 +30,7 @@ FIELDS = ("marca", "modelo", "ano", "cor", "combustivel", "tipo")
 
 # Texto usado pelo app.py quando um campo não veio na consulta (placa
 # encontrada, mas sem aquele dado específico). Não inventamos o valor.
-NOT_FOUND_TEXT = ""
+NOT_FOUND_TEXT = "Não encontrado"
 
 _PLATE_RE = re.compile(r"^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$")
 
