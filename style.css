@@ -114,13 +114,25 @@ body,
 
 [data-testid="stSidebar"] {
     background: var(--ac-teal-dark) !important;
+    /* Streamlit usa a variável --text-color (definida lá em cima, escura,
+       para o conteúdo principal claro) para colorir títulos internamente.
+       Redefinindo-a aqui dentro, tudo que herdar var(--text-color) dentro
+       da sidebar (títulos "##", etc.) pega a cor clara certa, sem precisar
+       caçar o seletor exato que o Streamlit usa em cada versão. */
+    --text-color: var(--ac-sidebar-text) !important;
 }
 
 [data-testid="stSidebar"] * {
     color: var(--ac-sidebar-text) !important;
 }
 
+[data-testid="stSidebar"] h1,
 [data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3,
+[data-testid="stSidebar"] h1 *,
+[data-testid="stSidebar"] h2 *,
+[data-testid="stSidebar"] h3 *,
+[data-testid="stSidebar"] a,
 [data-testid="stSidebar"] [data-testid="stCaptionContainer"],
 [data-testid="stSidebar"] [data-testid="stCaptionContainer"] *,
 [data-testid="stSidebar"] small {
