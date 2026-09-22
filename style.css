@@ -771,19 +771,36 @@ div[class*="st-key-damage_mark_"] button[kind="secondary"] span {
    BOTÃO ABRIR/FECHAR MENU - CELULAR
    ========================================================= */
 
-[data-testid="stSidebarCollapsedControl"] {
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"] {
     background-color: #1E2A2E !important;
     border-radius: 8px !important;
 }
 
-[data-testid="stSidebarCollapsedControl"] button {
+[data-testid="stSidebarCollapsedControl"] button,
+[data-testid="collapsedControl"] button,
+[data-testid="stSidebarCollapsedControl"] [role="button"],
+[data-testid="collapsedControl"] [role="button"] {
     background-color: #1E2A2E !important;
     color: #FFFFFF !important;
     border: none !important;
 }
 
-[data-testid="stSidebarCollapsedControl"] button svg {
+/* O Streamlit muda de vez em quando a estrutura interna desse botão entre
+   versões (svg inline vs. ícone de fonte Material). Cobrimos os dois casos
+   para o botão não voltar a ficar branco em uma próxima atualização. */
+[data-testid="stSidebarCollapsedControl"] svg,
+[data-testid="collapsedControl"] svg,
+[data-testid="stSidebarCollapsedControl"] button svg,
+[data-testid="collapsedControl"] button svg {
     fill: #FFFFFF !important;
+    color: #FFFFFF !important;
+}
+
+[data-testid="stSidebarCollapsedControl"] [data-testid="stIconMaterial"],
+[data-testid="collapsedControl"] [data-testid="stIconMaterial"],
+[data-testid="stSidebarCollapsedControl"] span,
+[data-testid="collapsedControl"] span {
     color: #FFFFFF !important;
 }
 
