@@ -4,5 +4,3 @@ reportlab>=4.0
 Pillow>=10.0
 numpy>=1.26
 requests>=2.31,<3
-beautifulsoup4>=4.12,<5
-curl_cffi>=0.7,<1
