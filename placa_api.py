@@ -36,6 +36,7 @@ FIELDS = (
     "ano",
     "ano_modelo",
     "cor",
+    "combustivel",
     "tipo",
     "carroceria",
     "chassi",
@@ -47,12 +48,8 @@ FIELDS = (
     "capacidade_tracao",
     "peso",
     "fipe",
+    "marca_modelo_completo",
 )
-# "combustivel" fica de fora de FIELDS de propósito: o app.py lê
-# found.get("combustivel") direto (linha ~661), fora do loop de FIELDS,
-# porque o combustível mora em c["combustivel"]["tipo"], não em v[...].
-# "marca_modelo_completo" (brandModel) continua disponível em res.data,
-# só não é copiado para v[...] porque nada no app.py o lê hoje.
 
 
 @dataclass
