@@ -30,7 +30,7 @@ FIELDS = ("marca", "modelo", "ano", "cor", "combustivel", "tipo")
 
 # Texto usado pelo app.py quando um campo não veio na consulta (placa
 # encontrada, mas sem aquele dado específico). Não inventamos o valor.
-NOT_FOUND_TEXT = "Não encontrado"
+NOT_FOUND_TEXT = ""
 
 _PLATE_RE = re.compile(r"^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$")
 
@@ -41,6 +41,19 @@ if not log.handlers:
     log.addHandler(handler)
     log.setLevel(logging.INFO)
     log.propagate = False
+
+# Confirma no log do Streamlit Cloud, já na inicialização do app, que o
+# curl_cffi foi realmente importado e qual versão está rodando em produção
+# (pedido explícito: verificar se ele está de fato em uso, e não só listado
+# no requirements.txt).
+try:
+    import curl_cffi as _curl_cffi_pkg
+    log.info(
+        "curl_cffi carregado com sucesso (versão %s) — usando impersonate=chrome",
+        getattr(_curl_cffi_pkg, "__version__", "desconhecida"),
+    )
+except Exception:
+    log.exception("Falha ao carregar curl_cffi — a consulta vai falhar")
 
 
 @dataclass
@@ -116,16 +129,24 @@ def _normalize_label(value: str) -> str:
 
 _LABELS = {
     "marca": {"marca", "fabricante"},
+    "generico": {"generico"},
     "modelo": {"modelo", "model"},
+    "importado": {"importado"},
     "ano": {"ano", "anofabricacao", "anofab"},
     "ano_modelo": {"anomodelo", "anomodel"},
     "cor": {"cor", "color"},
+    "cilindrada": {"cilindrada"},
+    "potencia": {"potencia"},
     "combustivel": {
         "combustivel",
         "combustivelmotor",
         "fuel",
         "tipocombustivel",
     },
+    "chassi": {"chassi"},
+    "passageiros": {"passageiros", "capacidadepassageiros"},
+    "uf": {"uf", "estado"},
+    "municipio": {"municipio", "cidade"},
     "tipo": {
         "tipo",
         "tipoveiculo",
@@ -175,11 +196,22 @@ def extract_vehicle(html: str) -> dict:
     rows = _extract_table_rows(html)
 
     marca = _first(rows, _LABELS["marca"])
+    generico = _first(rows, _LABELS["generico"])
     modelo = _first(rows, _LABELS["modelo"])
+    importado = _first(rows, _LABELS["importado"])
     ano = _first(rows, _LABELS["ano"])
     ano_modelo = _first(rows, _LABELS["ano_modelo"])
     cor = _first(rows, _LABELS["cor"])
+    cilindrada = _first(rows, _LABELS["cilindrada"])
+    potencia = _first(rows, _LABELS["potencia"])
+    # Combustível: preservado exatamente como veio no HTML (só maiúsculas),
+    # sem tentar mapear/normalizar para Gasolina/Flex/Híbrido etc. Isso,
+    # se for o caso, é feito no app.py — este módulo não converte o valor.
     combustivel = _first(rows, _LABELS["combustivel"])
+    chassi = _first(rows, _LABELS["chassi"])
+    passageiros = _first(rows, _LABELS["passageiros"])
+    uf = _first(rows, _LABELS["uf"])
+    municipio = _first(rows, _LABELS["municipio"])
     tipo = _first(rows, _LABELS["tipo"])
 
     if not ano:
@@ -196,6 +228,17 @@ def extract_vehicle(html: str) -> dict:
         "cor": cor.upper(),
         "combustivel": combustivel.upper(),
         "tipo": tipo.upper(),
+        # Campos extras (não fazem parte de FIELDS, então o app.py — que só
+        # percorre placa_api.FIELDS — ignora estas chaves com segurança;
+        # ficam aqui disponíveis para quem quiser usá-los depois).
+        "generico": generico.upper(),
+        "importado": importado.upper(),
+        "cilindrada": cilindrada.upper(),
+        "potencia": potencia.upper(),
+        "chassi": chassi.upper(),
+        "passageiros": passageiros.upper(),
+        "uf": uf.upper(),
+        "municipio": municipio.upper(),
     }
 
     if ano_modelo:
@@ -274,7 +317,7 @@ def lookup_plate(plate: str, config: Optional[Config]) -> Result:
     base_url = config.base_url.rstrip("/")
     url = f"{base_url}/placa/{plate}"
 
-    log.info("iniciando sessão de consulta")
+    log.info("iniciando sessão de consulta (curl_cffi, impersonate=chrome)")
 
     session = _new_session(base_url)
 
@@ -309,12 +352,26 @@ def lookup_plate(plate: str, config: Optional[Config]) -> Result:
         )
 
         if response.status_code == 403:
+            # Chegar aqui já usando curl_cffi (impersonate=chrome) mostra que
+            # o bloqueio não é (só) por impressão digital TLS/JA3 — isso já
+            # foi tratado. Registramos os headers da resposta para dar pistas
+            # (ex.: "server"/"cf-ray" indicando um WAF/Cloudflare específico,
+            # ou algo ligado à reputação do IP de saída do Streamlit Cloud),
+            # sem tentar nenhuma técnica de desvio dessa proteção.
+            log.info(
+                "headers da resposta 403: %s",
+                dict(response.headers) if response.headers else {},
+            )
             return Result(
                 "unavailable",
                 message=(
-                    "O Placa FIPE recusou a consulta (HTTP 403). "
-                    "O servidor está bloqueando esta requisição automática. "
-                    "Preencha manualmente ou tente novamente."
+                    "O Placa FIPE recusou a consulta (HTTP 403), mesmo com "
+                    "uma sessão que imita o TLS/HTTP de um navegador Chrome "
+                    "real (curl_cffi). Isso indica que o bloqueio não é "
+                    "apenas por identificação do cliente HTTP, e sim algo "
+                    "como reputação do IP de origem ou outra proteção "
+                    "anti-bot mais ampla do site. Não tentamos contornar "
+                    "essa proteção. Preencha os dados manualmente."
                 ),
             )
 
@@ -357,7 +414,7 @@ def lookup_plate(plate: str, config: Optional[Config]) -> Result:
 
         log.info(
             "campos extraídos: %s",
-            ", ".join(k for k in FIELDS if vehicle.get(k)) or "nenhum",
+            ", ".join(k for k in vehicle if not k.startswith("_")) or "nenhum",
         )
 
         return Result("ok", data=vehicle)
