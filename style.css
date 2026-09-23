@@ -599,7 +599,6 @@ div[class*="st-key-damage_mark_"] button[kind="secondary"] span {
 }
 
 [data-testid="stFileUploaderDropzone"] {
-    width: 100% !important;
     background: transparent !important;
     border: none !important;
     border-radius: 0 !important;
@@ -630,47 +629,22 @@ div[class*="st-key-damage_mark_"] button[kind="secondary"] span {
    existam por baixo) e escrevemos "Tirar" uma única vez, no próprio botão. */
 [data-testid="stFileUploaderDropzone"] button {
     position: relative !important;
-    overflow: hidden !important;
-    width: 100% !important;
-    box-sizing: border-box !important;
-    /* Cinza-grafite neutro (mesma paleta do app, sem laranja/verde vibrante).
-       background-size maior que 100% + background-position dá o efeito de
-       "escorregar" o gradiente no hover/toque. */
-    background: linear-gradient(135deg, var(--ac-teal-dark) 0%, var(--ac-slate) 100%) !important;
-    background-size: 220% 220% !important;
-    background-position: 0% 50% !important;
+    width: 100% !important;          /* era "auto" — agora estica até a largura do container */
+    box-sizing: border-box !important; /* padding não estoura a largura pra fora da tela */
+    background: var(--ac-orange) !important;
     color: transparent !important;
     font-size: 0 !important;
     border: none !important;
-    border-radius: 10px !important;
+    border-radius: 5px !important;
     min-height: 40px !important;
     height: 40px !important;
-    padding: 0 18px !important;
+    padding: 0 18px !important;      /* voltou ao normal — o 180px estava empurrando a largura à força */
     font-weight: 700 !important;
-    box-shadow: 0 6px 16px rgba(23, 38, 43, 0.30) !important;
-    transition: transform 0.08s ease, box-shadow 0.2s ease, background-position 0.45s ease, filter 0.15s ease !important;
-}
-
-/* Brilho tipo "vidro" na metade de cima do botão — efeito bem atual. */
-[data-testid="stFileUploaderDropzone"] button::before {
-    content: "" !important;
-    position: absolute !important;
-    inset: 0 !important;
-    border-radius: inherit !important;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0) 55%) !important;
-    pointer-events: none !important;
+    box-shadow: none !important;
 }
 
 [data-testid="stFileUploaderDropzone"] button:hover {
-    background-position: 100% 50% !important;
-    box-shadow: 0 8px 20px rgba(23, 38, 43, 0.4), 0 0 0 1px rgba(143, 163, 168, 0.35) !important;
-}
-
-/* Feedback tátil ao tocar/clicar: o botão "afunda" um pouquinho. */
-[data-testid="stFileUploaderDropzone"] button:active {
-    transform: scale(0.97) !important;
-    box-shadow: 0 2px 8px rgba(23, 38, 43, 0.3) !important;
-    filter: brightness(0.96) !important;
+    background: var(--ac-orange-dark) !important;
 }
 
 [data-testid="stFileUploaderDropzone"] button * {
@@ -678,10 +652,9 @@ div[class*="st-key-damage_mark_"] button[kind="secondary"] span {
 }
 
 [data-testid="stFileUploaderDropzone"] button::after {
-    content: "📷  Tirar" !important;
+    content: "Tirar foto agora" !important;
     display: inline-block !important;
     position: absolute !important;
-    z-index: 1 !important;
     top: 50% !important;
     left: 50% !important;
     transform: translate(-50%, -50%) !important;
@@ -689,8 +662,6 @@ div[class*="st-key-damage_mark_"] button[kind="secondary"] span {
     color: #FFFFFF !important;
     font-size: 14px !important;
     font-weight: 700 !important;
-    letter-spacing: 0.2px !important;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2) !important;
 }
 
 /* Câmera do navegador: mesmo raio de borda das fotos enviadas */
