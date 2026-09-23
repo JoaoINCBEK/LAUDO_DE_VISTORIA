@@ -674,7 +674,7 @@ div[class*="st-key-damage_mark_"] button[kind="secondary"] span {
    absolute/transform pra isso (o que também evita cortar o texto caso o
    botão fique mais estreito do que o esperado em algum aparelho). */
 [data-testid="stFileUploaderDropzone"] button::after {
-    content: "Tirar" !important;
+    content: "Tirar foto" !important;
     white-space: nowrap !important;
     color: #FFFFFF !important;
     font-size: 14px !important;
