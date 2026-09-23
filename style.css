@@ -598,7 +598,10 @@ div[class*="st-key-damage_mark_"] button[kind="secondary"] span {
     background: transparent !important;
 }
 
+[data-testid="stFileUploader"],
 [data-testid="stFileUploaderDropzone"] {
+    display: block !important;
+    width: 100% !important;
     background: transparent !important;
     border: none !important;
     border-radius: 0 !important;
@@ -620,27 +623,42 @@ div[class*="st-key-damage_mark_"] button[kind="secondary"] span {
     display: none !important;
 }
 
-/* Botão "Browse files" vira um botão cheio, no estilo do app.
+/* Botão "Browse files" vira um botão cheio, no estilo do app — visual
+   simples, cor sólida (sem gradiente/vidro/animação).
    Antes, o texto "Tirar" era injetado via ::after em CADA <p> e <span>
    internos do botão — em versões do Streamlit que renderizam mais de um
    desses elementos dentro do botão (ícone + texto, por exemplo), cada um
    ganhava seu próprio "Tirar", empilhando/sobrepondo o texto várias vezes.
    Agora escondemos TODO o conteúdo interno (não importa quantos elementos
-   existam por baixo) e escrevemos "Tirar" uma única vez, no próprio botão. */
+   existam por baixo) e escrevemos "Tirar" uma única vez, no próprio botão.
+   width:100% sozinho não estava vencendo o CSS interno do Streamlit em
+   algumas versões — por isso reforçamos com display:flex (o botão passa a
+   crescer pelo eixo principal do flex, não só pela largura) e uma regra
+   com o seletor duplicado (aumenta a especificidade "na unha", sem
+   precisar saber o nome exato da classe interna do Streamlit). */
 [data-testid="stFileUploaderDropzone"] button {
     position: relative !important;
-    width: 100% !important;          /* era "auto" — agora estica até a largura do container */
-    box-sizing: border-box !important; /* padding não estoura a largura pra fora da tela */
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 100% !important;
+    flex: 1 1 100% !important;
+    box-sizing: border-box !important;
     background: var(--ac-orange) !important;
     color: transparent !important;
     font-size: 0 !important;
     border: none !important;
-    border-radius: 5px !important;
+    border-radius: 8px !important;
     min-height: 40px !important;
     height: 40px !important;
-    padding: 0 18px !important;      /* voltou ao normal — o 180px estava empurrando a largura à força */
+    padding: 0 18px !important;
     font-weight: 700 !important;
     box-shadow: none !important;
+}
+
+[data-testid="stFileUploaderDropzone"][data-testid="stFileUploaderDropzone"] button {
+    width: 100% !important;
+    flex: 1 1 100% !important;
 }
 
 [data-testid="stFileUploaderDropzone"] button:hover {
@@ -651,13 +669,12 @@ div[class*="st-key-damage_mark_"] button[kind="secondary"] span {
     display: none !important;
 }
 
+/* O botão agora é display:flex com itens centralizados (regra acima), então
+   o ::after já nasce centralizado sozinho — não precisa mais de position
+   absolute/transform pra isso (o que também evita cortar o texto caso o
+   botão fique mais estreito do que o esperado em algum aparelho). */
 [data-testid="stFileUploaderDropzone"] button::after {
-    content: "Tirar foto agora" !important;
-    display: inline-block !important;
-    position: absolute !important;
-    top: 50% !important;
-    left: 50% !important;
-    transform: translate(-50%, -50%) !important;
+    content: "Tirar" !important;
     white-space: nowrap !important;
     color: #FFFFFF !important;
     font-size: 14px !important;
@@ -840,6 +857,7 @@ div[class*="st-key-avaria_up"] [data-testid="stFileUploaderDropzone"] {
 
 div[class*="st-key-avaria_up"] [data-testid="stFileUploaderDropzone"] button {
     width: 100% !important;
+    flex: 1 1 100% !important;
     min-height: 52px !important;
     height: 52px !important;
 }
