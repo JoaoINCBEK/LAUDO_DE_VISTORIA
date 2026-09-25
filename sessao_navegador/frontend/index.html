@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>laudo_sessao</title>
+<style>html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }</style>
+</head>
+<body>
+<script>
+(function () {
+  "use strict";
+  // Protocolo de componentes do Streamlit (postMessage), sem a biblioteca npm.
+  function post(type, extra) {
+    var m = { isStreamlitMessage: true, type: type };
+    if (extra) { for (var k in extra) { m[k] = extra[k]; } }
+    window.parent.postMessage(m, "*");
+  }
+  function enviar(v) { post("streamlit:setComponentValue", { value: v, dataType: "json" }); }
+
+  // Este iframe é servido pelo próprio app (mesma origem): cookie e localStorage daqui são os do site.
+  function lerCookie(nome) {
+    var partes = ("; " + document.cookie).split("; " + nome + "=");
+    return partes.length > 1 ? decodeURIComponent(partes.pop().split(";")[0]) : "";
+  }
+  function gravarCookie(nome, valor, segundos) {
+    var sec = location.protocol === "https:" ? "; Secure" : "";
+    document.cookie = nome + "=" + encodeURIComponent(valor) + "; Path=/; Max-Age=" + segundos + "; SameSite=Lax" + sec;
+  }
+  function lsGet(nome) { try { return window.localStorage.getItem(nome) || ""; } catch (e) { return ""; } }
+  function lsSet(nome, valor) { try { window.localStorage.setItem(nome, valor); } catch (e) {} }
+  function lsDel(nome) { try { window.localStorage.removeItem(nome); } catch (e) {} }
+
+  var feito = null;   // responde uma vez por pedido (o Streamlit reenvia "render" a cada execução)
+  window.addEventListener("message", function (ev) {
+    var d = ev.data;
+    if (!d || d.type !== "streamlit:render") { return; }
+    var a = d.args || {};
+    var nome = a.nome || "ac_token";
+    var pedido = (a.acao || "") + ":" + (a.token || "");
+    if (feito === pedido) { return; }
+    feito = pedido;
+    try {
+      if (a.acao === "gravar" && a.token) {
+        gravarCookie(nome, a.token, a.segundos || 604800);
+        lsSet(nome, a.token);
+        enviar({ acao: "gravar", token: a.token });
+      } else if (a.acao === "apagar") {
+        gravarCookie(nome, "", 0);
+        lsDel(nome);
+        enviar({ acao: "apagar" });
+      } else {
+        // Cookie primeiro; localStorage cobre navegadores que descartam o cookie.
+        enviar({ acao: "ler", token: lerCookie(nome) || lsGet(nome) });
+      }
+    } catch (e) {
+      enviar({ acao: a.acao || "ler", token: "", erro: String(e) });
+    }
+  });
+
+  post("streamlit:componentReady", { apiVersion: 1 });
+  post("streamlit:setFrameHeight", { height: 0 });
+})();
+</script>
+</body>
+</html>

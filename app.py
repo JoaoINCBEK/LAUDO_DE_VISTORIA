@@ -12,6 +12,7 @@ import paineis
 import assinatura
 import desenho
 from desenho import render as desenho_render
+import sessao_navegador
 
 import unicodedata
 APP = "LAUDO DE VISTORIA"
@@ -305,8 +306,10 @@ def create_login_session(user):
 def restore_login_session():
     ss = st.session_state
     if "_ac_token" not in ss:
-        # 1ª execução desta aba: token do cookie ou de um link antigo (?ac_token=), que sai da URL.
-        candidatos = [_cookie_token(), st.query_params.get("ac_token")]
+        # 1ª execução desta aba: link antigo (?ac_token=, que sai da URL), cookie visto pelo
+        # servidor ou o token lido pelo próprio navegador (ler_token_do_navegador).
+        do_navegador = ss.pop("_token_navegador", None)
+        candidatos = [st.query_params.get("ac_token"), _cookie_token(), do_navegador]
         if "ac_token" in st.query_params:
             del st.query_params["ac_token"]
         ss._ac_token = None
@@ -324,24 +327,43 @@ def restore_login_session():
         ss._sessao_ok_t = time.time()
     return ator
 
+def _tem_navegador():
+    """Há um navegador de verdade do outro lado? (no AppTest não chega nenhum cabeçalho HTTP)"""
+    try:
+        return bool(st.context.headers.get("User-Agent") or st.context.headers.get("Host"))
+    except Exception:
+        return False
+
+def ler_token_do_navegador():
+    """F5 / nova aba: antes de decidir entre login e painel, pergunta ao navegador pelo token
+    salvo (no Streamlit Cloud o cookie não chega ao servidor). Enquanto ele não responde
+    (uma fração de segundo), mostra só "Carregando…"."""
+    ss = st.session_state
+    if "user" in ss or "_ac_token" in ss or st.query_params.get("ac_token") or _cookie_token():
+        return
+    if not _tem_navegador():   # testes (AppTest): sem navegador, o componente nunca responderia
+        return
+    lido = sessao_navegador.navegador("ler", key="ac_sessao_ler")
+    if lido is None:
+        st.caption("Carregando…")
+        st.stop()
+    ss._token_navegador = lido.get("token") or None
+    ss._navegador_token = lido.get("token") or ""    # o que o navegador já guarda
+
 def cookie_sync():
-    """Grava/apaga o cookie do login no navegador quando ele difere do token desta sessão.
-    (O Streamlit só lê os cookies ao abrir a página; por isso, depois de gravar, o iframe
-    continua sendo desenhado igual até o próximo carregamento — sem custo extra.)"""
-    token = session_token()
-    if (token or None) == _cookie_token():
+    """Grava/apaga o token no navegador (cookie + localStorage) quando ele difere do token
+    desta sessão. Continua desenhado até o navegador confirmar."""
+    ss = st.session_state
+    token = session_token() or ""
+    if ss.get("_navegador_token") == token:
         return
     if token:
-        valor, idade = token, seguranca.SESSAO_DIAS * 86400
+        r = sessao_navegador.navegador("gravar", token=token, nome=COOKIE_TOKEN,
+                                       segundos=seguranca.SESSAO_DIAS * 86400, key="ac_sessao_g_" + token[:12])
     else:
-        valor, idade = "", 0
-    components.html(
-        "<script>(function(){ try { var w = window.parent;"
-        " var sec = w.location.protocol === 'https:' ? '; Secure' : '';"
-        f" w.document.cookie = '{COOKIE_TOKEN}=' + {json.dumps(valor)} + '; Path=/; Max-Age={idade}; SameSite=Lax' + sec;"
-        " } catch (e) {} })();</script>",
-        height=0,
-    )
+        r = sessao_navegador.navegador("apagar", nome=COOKIE_TOKEN, key=f"ac_sessao_a_{ss.get('_logout_n', 0)}")
+    if r is not None:
+        ss._navegador_token = token
 
 def sync_vistoria_db(inspection, force=False):
     """Guarda o andamento da vistoria no banco (para continuar depois / o admin acompanhar).
@@ -402,7 +424,8 @@ def load_current_state(user):
 
 def clear_login_session():
     token = session_token()
-    st.session_state._ac_token = None      # o cookie_sync() apaga o cookie no navegador
+    st.session_state._ac_token = None      # o cookie_sync() apaga o token no navegador
+    st.session_state._logout_n = st.session_state.get("_logout_n", 0) + 1
     st.session_state.pop("_senha_ok", None)
     if token:
         try:
@@ -441,6 +464,7 @@ def preparar_banco():
         migracao.garantir_super_admin(cfg["login"], cfg.get("nome", ""), cfg["senha"])
     return resumo
 preparar_banco()
+ler_token_do_navegador()
 
 if "user" not in st.session_state:
     st.session_state.user = restore_login_session()
