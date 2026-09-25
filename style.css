@@ -1,0 +1,1482 @@
+@import url('https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Semi+Condensed:wght@600;700&display=swap');
+
+/* =========================================================
+   LAUDO DE VISTORIA — folha de estilo única
+   Somente aparência: nenhuma regra aqui altera comportamento.
+   Ordem: 1 tokens · 2 base · 3 barra superior · 4 sidebar
+          5 cabeçalho de etapa · 6 cartões · 7 formulários
+          8 selects · 9 botões · 10 botões de status
+          11 fotos/upload · 12 componentes diversos
+          13 navegação · 14 celular
+   ========================================================= */
+
+
+/* =========================================================
+   1. TOKENS
+   ========================================================= */
+
+:root,
+.stApp {
+    color-scheme: light only !important;
+
+    --ac-font: "Barlow", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --ac-font-display: "Barlow Semi Condensed", "Barlow", "Segoe UI", sans-serif;
+
+    --ac-bg: #F2F4F6;
+    --ac-surface: #FFFFFF;
+    --ac-surface-2: #F7F8FA;
+    --ac-line: #D9DEE4;
+    --ac-line-strong: #BFC7D0;
+
+    --ac-text: #17212B;
+    --ac-text-soft: #4A5663;
+    --ac-muted: #6D7885;
+
+    --ac-ink: #1B2A38;          /* asfalto: marca, ação principal */
+    --ac-ink-hover: #0F1B26;
+    --ac-accent: #E3751C;       /* laranja de sinalização: destaques pontuais */
+    --ac-accent-soft: rgba(227, 117, 28, .14);
+    --ac-focus: rgba(227, 117, 28, .22);
+
+    --ac-ok: #15803D;
+    --ac-danger: #C62828;
+    --ac-neutral: #5B6675;
+    --ac-blue: #2563EB;
+
+    --ac-radius: 8px;
+    --ac-radius-lg: 10px;
+    --ac-shadow: 0 1px 2px rgba(16, 24, 32, .05);
+    --ac-bar-h: 56px;
+
+    --ac-sidebar-bg: #16222E;
+    --ac-sidebar-text: #D6DDE4;
+    --ac-sidebar-muted: #8C99A6;
+
+    --primary-color: #1B2A38 !important;
+    --background-color: #F2F4F6 !important;
+    --secondary-background-color: #FFFFFF !important;
+    --text-color: #17212B !important;
+}
+
+
+/* =========================================================
+   2. BASE
+   ========================================================= */
+
+.stApp,
+.stApp p,
+.stApp li,
+.stApp label,
+.stApp input,
+.stApp textarea,
+.stApp button,
+.stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
+.stApp [data-testid="stMarkdownContainer"],
+.stApp [data-baseweb="select"] div,
+.stApp .stSlider div,
+div[data-baseweb="popover"] li {
+    font-family: var(--ac-font) !important;
+}
+
+[data-testid="stAppViewContainer"],
+[data-testid="stAppViewContainer"] > .main,
+[data-testid="stMain"] {
+    background: var(--ac-bg) !important;
+    color: var(--ac-text) !important;
+}
+
+[data-testid="stAppViewContainer"] p,
+[data-testid="stAppViewContainer"] li,
+[data-testid="stAppViewContainer"] label,
+[data-testid="stAppViewContainer"] [data-testid="stMarkdownContainer"] {
+    color: var(--ac-text);
+}
+
+.stApp p,
+.stApp li {
+    font-size: 15px;
+    line-height: 1.5;
+}
+
+/* Títulos criados com st.subheader / "###" */
+[data-testid="stMain"] h2,
+[data-testid="stMain"] h3 {
+    font-family: var(--ac-font-display) !important;
+    color: var(--ac-text) !important;
+    font-size: 19px !important;
+    font-weight: 700 !important;
+    letter-spacing: .1px;
+    padding: 10px 0 4px !important;
+    margin: 0 !important;
+}
+
+/* Ícone de link ao lado dos títulos: coisa de documentação, não de sistema */
+[data-testid="stHeaderActionElements"],
+[data-testid="stMain"] h1 a,
+[data-testid="stMain"] h2 a,
+[data-testid="stMain"] h3 a {
+    display: none !important;
+}
+
+[data-testid="stCaptionContainer"],
+[data-testid="stCaptionContainer"] p,
+.stApp small {
+    color: var(--ac-muted) !important;
+    font-size: 13px !important;
+}
+
+.stApp hr {
+    border: none !important;
+    border-top: 1px solid var(--ac-line) !important;
+    margin: 8px 0 !important;
+}
+
+/* Área útil: largura de leitura confortável no computador */
+[data-testid="stMainBlockContainer"],
+.block-container {
+    max-width: 1080px !important;
+    padding-top: calc(var(--ac-bar-h) + 24px) !important;
+    padding-bottom: 96px !important;
+}
+
+/* O Streamlit puxa todo bloco Markdown 16px para cima (compensa a margem do <p>).
+   Nos blocos de HTML próprios isso cortava a última linha: anulamos só neles. */
+[data-testid="stMarkdownContainer"]:has(> .ac-hero, > .ac-card, > .ac-brand, > .ac-section-title, > .ac-item-title, > .ac-side-brand) {
+    margin-bottom: 0 !important;
+}
+
+/* Marcador invisível usado pelo JS de rolagem: não deve ocupar espaço */
+[data-testid="stElementContainer"]:has(.ac-view-marker) {
+    display: none !important;
+}
+
+
+/* =========================================================
+   3. BARRA SUPERIOR (substitui o cabeçalho padrão)
+   ========================================================= */
+
+[data-testid="stDecoration"],
+[data-testid="stToolbarActions"],
+[data-testid="stAppDeployButton"],
+[data-testid="stMainMenu"],
+.stDeployButton,
+#MainMenu,
+footer {
+    display: none !important;
+}
+
+[data-testid="stHeader"] {
+    height: var(--ac-bar-h) !important;
+    background: var(--ac-ink) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, .06);
+    box-shadow: 0 1px 0 rgba(0, 0, 0, .12);
+}
+
+/* Nome do sistema na barra: aparece em todas as telas */
+[data-testid="stHeader"]::before {
+    content: "LAUDO DE VISTORIA";
+    position: absolute;
+    left: 64px;
+    top: 50%;
+    transform: translateY(-50%);
+    padding-left: 34px;
+    height: 26px;
+    line-height: 26px;
+    font-family: var(--ac-font-display);
+    font-weight: 700;
+    font-size: 17px;
+    letter-spacing: 1.4px;
+    color: #FFFFFF;
+    white-space: nowrap;
+    background: no-repeat left center / 26px 26px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23E3751C'/%3E%3Cpath d='M16 6.5l7.5 3v5.6c0 4.7-3.1 8.7-7.5 10.4-4.4-1.7-7.5-5.7-7.5-10.4V9.5z' fill='none' stroke='%23fff' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M12.4 15.8l2.6 2.6 4.8-5' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    pointer-events: none;
+}
+
+/* Tela de login: a marca completa já aparece no conteúdo */
+.stApp:has(.st-key-ac_login) [data-testid="stHeader"]::before {
+    display: none;
+}
+
+/* Indicador "Running..." do Streamlit: legível sobre a barra escura */
+[data-testid="stStatusWidget"],
+[data-testid="stStatusWidget"] * {
+    color: #FFFFFF !important;
+}
+
+/* Botão que abre o menu lateral: integrado à barra */
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"] {
+    top: 8px !important;
+    left: 10px !important;
+    background: transparent !important;
+    z-index: 999991 !important;
+}
+
+[data-testid="stSidebarCollapsedControl"] button,
+[data-testid="collapsedControl"] button {
+    width: 40px !important;
+    height: 40px !important;
+    border-radius: var(--ac-radius) !important;
+    background: rgba(255, 255, 255, .08) !important;
+    border: 1px solid rgba(255, 255, 255, .14) !important;
+    color: #FFFFFF !important;
+}
+
+[data-testid="stSidebarCollapsedControl"] button:hover,
+[data-testid="collapsedControl"] button:hover {
+    background: rgba(255, 255, 255, .16) !important;
+}
+
+[data-testid="stSidebarCollapsedControl"] svg,
+[data-testid="collapsedControl"] svg,
+[data-testid="stSidebarCollapsedControl"] [data-testid="stIconMaterial"],
+[data-testid="collapsedControl"] [data-testid="stIconMaterial"] {
+    fill: #FFFFFF !important;
+    color: #FFFFFF !important;
+}
+
+
+/* =========================================================
+   4. MENU LATERAL
+   ========================================================= */
+
+[data-testid="stSidebar"] {
+    background: var(--ac-sidebar-bg) !important;
+    border-right: 1px solid rgba(255, 255, 255, .06);
+    --text-color: var(--ac-sidebar-text) !important;
+}
+
+[data-testid="stSidebar"] > div {
+    background: transparent !important;
+}
+
+[data-testid="stSidebarUserContent"] {
+    padding: 0 14px 28px !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+    gap: 2px !important;
+}
+
+[data-testid="stSidebar"] * {
+    color: var(--ac-sidebar-text);
+}
+
+[data-testid="stSidebarCollapseButton"] button,
+[data-testid="stSidebarHeader"] button {
+    color: var(--ac-sidebar-text) !important;
+}
+
+[data-testid="stSidebarCollapseButton"] svg,
+[data-testid="stSidebarHeader"] svg {
+    fill: var(--ac-sidebar-text) !important;
+}
+
+.ac-side-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 4px 14px;
+}
+
+.ac-side-brand .ac-mark {
+    width: 30px;
+    height: 30px;
+    flex: none;
+}
+
+.ac-side-brand .ac-brand-name {
+    font-family: var(--ac-font-display);
+    font-weight: 700;
+    font-size: 16px;
+    letter-spacing: 1.3px;
+    color: #FFFFFF !important;
+}
+
+.ac-side-user {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    margin-bottom: 14px;
+    border-radius: var(--ac-radius);
+    background: rgba(255, 255, 255, .05);
+    border: 1px solid rgba(255, 255, 255, .07);
+}
+
+.ac-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    flex: none;
+    background: #2B3D4F;
+    color: #FFFFFF !important;
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.ac-side-user-name {
+    font-weight: 600;
+    font-size: 14px;
+    color: #FFFFFF !important;
+    line-height: 1.2;
+}
+
+.ac-side-user-role {
+    font-size: 12px;
+    color: var(--ac-sidebar-muted) !important;
+}
+
+.ac-side-sep {
+    height: 1px;
+    background: rgba(255, 255, 255, .08);
+    margin: 10px 4px;
+}
+
+/* Rótulo de grupo no menu (ex.: "Vistoria CHK-2026-000012") */
+.ac-side-label {
+    padding: 2px 12px 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--ac-sidebar-muted) !important;
+}
+
+/* Itens do menu: lista, não "botões" */
+[data-testid="stSidebar"] .stButton > button {
+    justify-content: flex-start !important;
+    text-align: left !important;
+    min-height: 42px !important;
+    padding: 0 12px !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: var(--ac-radius) !important;
+    box-shadow: none !important;
+    color: var(--ac-sidebar-text) !important;
+    font-weight: 500 !important;
+}
+
+[data-testid="stSidebar"] .stButton > button p {
+    color: var(--ac-sidebar-text) !important;
+    font-size: 14.5px !important;
+    font-weight: 500 !important;
+    text-align: left !important;
+    white-space: pre;
+}
+
+[data-testid="stSidebar"] .stButton > button:hover {
+    background: rgba(255, 255, 255, .06) !important;
+}
+
+[data-testid="stSidebar"] .stButton > button:hover p {
+    color: #FFFFFF !important;
+}
+
+/* Etapa atual */
+[data-testid="stSidebar"] .stButton > button[kind="primary"] {
+    background: rgba(255, 255, 255, .08) !important;
+    box-shadow: inset 3px 0 0 var(--ac-accent) !important;
+}
+
+[data-testid="stSidebar"] .stButton > button[kind="primary"] p {
+    color: #FFFFFF !important;
+    font-weight: 600 !important;
+}
+
+/* "Nova inspeção": ação de destaque do menu */
+[data-testid="stSidebar"] .st-key-sb_new button {
+    justify-content: center !important;
+    margin-top: 10px;
+    background: var(--ac-accent) !important;
+}
+
+[data-testid="stSidebar"] .st-key-sb_new button p {
+    color: #FFFFFF !important;
+    font-weight: 600 !important;
+}
+
+[data-testid="stSidebar"] .st-key-sb_new button:hover {
+    background: #CC6614 !important;
+}
+
+[data-testid="stSidebar"] .st-key-sb_logout button p {
+    color: var(--ac-sidebar-muted) !important;
+}
+
+
+/* =========================================================
+   5. CABEÇALHO DE PÁGINA / ETAPA
+   ========================================================= */
+
+.ac-hero {
+    background: var(--ac-surface);
+    border: 1px solid var(--ac-line);
+    border-radius: var(--ac-radius-lg);
+    padding: 18px 20px 16px;
+    margin-bottom: 4px;
+    box-shadow: var(--ac-shadow);
+    position: relative;
+    overflow: hidden;
+}
+
+.ac-hero-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+}
+
+.ac-step-num {
+    flex: none;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--ac-radius);
+    background: var(--ac-ink);
+    color: #FFFFFF !important;
+    display: grid;
+    place-items: center;
+    font-family: var(--ac-font-display);
+    font-weight: 700;
+    font-size: 20px;
+    letter-spacing: .5px;
+    box-shadow: inset 0 -3px 0 var(--ac-accent);
+}
+
+.ac-hero-text {
+    min-width: 0;
+}
+
+.ac-eyebrow {
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;          /* só o rótulo "Etapa", nunca campos */
+    color: var(--ac-accent) !important;
+    margin-bottom: 1px;
+}
+
+.ac-title {
+    font-family: var(--ac-font-display);
+    font-size: 24px !important;
+    font-weight: 700 !important;
+    color: var(--ac-text) !important;
+    line-height: 1.2 !important;
+    margin: 0 !important;
+    overflow-wrap: anywhere;
+}
+
+.ac-sub,
+.ac-hero .hero-sub {
+    color: var(--ac-text-soft) !important;
+    font-size: 14.5px;
+    line-height: 1.45;
+    margin-top: 4px;
+}
+
+.ac-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 14px;
+}
+
+.ac-chip {
+    display: inline-flex;
+    align-items: center;
+    height: 26px;
+    padding: 0 10px;
+    border-radius: 6px;
+    background: var(--ac-surface-2);
+    border: 1px solid var(--ac-line);
+    color: var(--ac-text-soft) !important;
+    font-size: 12.5px;
+    font-weight: 500;
+    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ac-progress {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 3px;
+    background: #E6E9ED;
+}
+
+.ac-progress > span {
+    display: block;
+    height: 100%;
+    background: var(--ac-accent);
+    transition: width .3s ease;
+}
+
+/* Marca completa (login) */
+.ac-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 8px 0 18px;
+}
+
+.ac-brand .ac-mark {
+    width: 44px;
+    height: 44px;
+    flex: none;
+}
+
+.ac-brand .ac-brand-name {
+    font-family: var(--ac-font-display);
+    font-weight: 700;
+    font-size: 24px;
+    letter-spacing: 1.6px;
+    color: var(--ac-ink) !important;
+    line-height: 1.1;
+}
+
+.ac-brand .ac-brand-sub {
+    color: var(--ac-muted) !important;
+    font-size: 14px;
+    margin-top: 2px;
+}
+
+/* Título de bloco dentro das etapas (pneu, foto, avaria...) */
+.ac-section-title {
+    font-family: var(--ac-font-display);
+    font-weight: 700;
+    font-size: 16.5px;
+    color: var(--ac-text) !important;
+    line-height: 1.25;
+}
+
+.ac-section-sub {
+    font-size: 13px;
+    color: var(--ac-muted) !important;
+    margin-top: 2px;
+    line-height: 1.4;
+}
+
+.ac-item-title {
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--ac-text) !important;
+}
+
+
+/* =========================================================
+   6. CARTÕES
+   ========================================================= */
+
+.ac-card {
+    background: transparent;
+    padding: 0 0 4px;
+}
+
+.ac-card-title {
+    font-family: var(--ac-font-display);
+    font-size: 20px !important;
+    font-weight: 700 !important;
+    color: var(--ac-text) !important;
+    line-height: 1.2 !important;
+}
+
+.ac-card .ac-sub {
+    margin-top: 2px;
+}
+
+/* Cartões brancos: formulários, expanders e os blocos com borda
+   (st.container(border=True, key="ac_card_...") no app.py) */
+[data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"]:has(> div > [class*="st-key-ac_card"]) {
+    padding: 16px !important;
+}
+
+[data-testid="stMain"] [class*="st-key-ac_card"] {
+    gap: 12px !important;
+}
+
+[data-testid="stMain"] [data-testid="stForm"],
+[data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"]:has(> div > [class*="st-key-ac_card"]),
+[data-testid="stMain"] [data-testid="stExpander"] details {
+    background: var(--ac-surface) !important;
+    border: 1px solid var(--ac-line) !important;
+    border-radius: var(--ac-radius-lg) !important;
+    box-shadow: var(--ac-shadow);
+}
+
+[data-testid="stMain"] [data-testid="stForm"] {
+    padding: 20px !important;
+}
+
+
+/* =========================================================
+   7. FORMULÁRIOS
+   (sem text-transform: o usuário digita exatamente o que quiser)
+   ========================================================= */
+
+[data-testid="stWidgetLabel"] p,
+[data-testid="stWidgetLabel"] label {
+    font-size: 13.5px !important;
+    font-weight: 600 !important;
+    color: var(--ac-text-soft) !important;
+    margin-bottom: 2px;
+}
+
+.stApp [data-baseweb="input"],
+.stApp [data-baseweb="textarea"],
+.stApp [data-baseweb="base-input"] {
+    background: var(--ac-surface) !important;
+    border-radius: var(--ac-radius) !important;
+}
+
+.stApp [data-baseweb="input"],
+.stApp [data-baseweb="textarea"] {
+    border: 1px solid var(--ac-line-strong) !important;
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.stApp [data-baseweb="input"] {
+    min-height: 46px;
+}
+
+.stApp [data-baseweb="input"]:hover,
+.stApp [data-baseweb="textarea"]:hover {
+    border-color: #9AA5B1 !important;
+}
+
+.stApp [data-baseweb="input"]:focus-within,
+.stApp [data-baseweb="textarea"]:focus-within {
+    border-color: var(--ac-accent) !important;
+    box-shadow: 0 0 0 3px var(--ac-focus) !important;
+}
+
+.stTextInput input,
+.stTextArea textarea,
+.stNumberInput input {
+    background: transparent !important;
+    color: var(--ac-text) !important;
+    -webkit-text-fill-color: var(--ac-text) !important;
+    font-size: 15.5px !important;
+    text-transform: none !important;
+    caret-color: var(--ac-accent);
+}
+
+.stTextInput input {
+    padding: 0 14px !important;
+    height: 44px;
+}
+
+.stTextArea textarea {
+    padding: 12px 14px !important;
+    line-height: 1.45 !important;
+}
+
+.stTextInput input::placeholder,
+.stTextArea textarea::placeholder {
+    color: #97A1AC !important;
+    -webkit-text-fill-color: #97A1AC !important;
+    opacity: 1 !important;
+}
+
+/* Olho de mostrar senha */
+.stTextInput [data-baseweb="input"] button {
+    background: transparent !important;
+    border: none !important;
+    color: var(--ac-muted) !important;
+}
+
+/* "Press Enter to apply" (inglês, padrão do Streamlit) */
+[data-testid="InputInstructions"] {
+    display: none !important;
+}
+
+/* Checkbox */
+.stCheckbox label {
+    align-items: center;
+    gap: 2px;
+}
+
+.stCheckbox label p {
+    font-size: 14px !important;
+    color: var(--ac-text-soft) !important;
+}
+
+/* Slider */
+.stSlider [data-testid="stTickBarMin"],
+.stSlider [data-testid="stTickBarMax"] {
+    color: var(--ac-muted) !important;
+    font-size: 12px;
+}
+
+[data-testid="stSliderThumbValue"] {
+    color: var(--ac-ink) !important;
+    font-weight: 700;
+}
+
+
+/* =========================================================
+   8. SELECTS
+   ========================================================= */
+
+.stApp [data-baseweb="select"] > div {
+    background: var(--ac-surface) !important;
+    border: 1px solid var(--ac-line-strong) !important;
+    border-radius: var(--ac-radius) !important;
+    min-height: 46px;
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.stApp [data-baseweb="select"] > div:hover {
+    border-color: #9AA5B1 !important;
+}
+
+.stApp [data-baseweb="select"] > div:focus-within {
+    border-color: var(--ac-accent) !important;
+    box-shadow: 0 0 0 3px var(--ac-focus) !important;
+}
+
+.stApp [data-baseweb="select"] div,
+.stApp [data-baseweb="select"] span,
+.stApp [data-baseweb="select"] input {
+    color: var(--ac-text) !important;
+    -webkit-text-fill-color: var(--ac-text) !important;
+    font-size: 15.5px;
+}
+
+.stApp [data-baseweb="select"] svg {
+    color: var(--ac-muted) !important;
+}
+
+/* Lista aberta */
+div[data-baseweb="popover"] {
+    border-radius: var(--ac-radius) !important;
+    overflow: hidden !important;
+    color-scheme: light !important;
+}
+
+div[data-baseweb="popover"] > div,
+div[data-baseweb="popover"] ul,
+div[data-baseweb="menu"],
+div[data-baseweb="menu"] ul {
+    background: var(--ac-surface) !important;
+    color: var(--ac-text) !important;
+}
+
+div[data-baseweb="popover"] ul {
+    border: 1px solid var(--ac-line) !important;
+    border-radius: var(--ac-radius) !important;
+    box-shadow: 0 10px 28px rgba(16, 24, 32, .14) !important;
+    padding: 4px !important;
+}
+
+div[data-baseweb="popover"] li,
+div[data-baseweb="menu"] li {
+    background: transparent !important;
+    border-radius: 6px !important;
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+}
+
+div[data-baseweb="popover"] li *,
+div[data-baseweb="menu"] li * {
+    color: var(--ac-text) !important;
+    -webkit-text-fill-color: var(--ac-text) !important;
+    background: transparent !important;
+}
+
+div[data-baseweb="popover"] li:hover,
+div[data-baseweb="menu"] li:hover {
+    background: #F1F3F5 !important;
+}
+
+/* Opção selecionada: fundo suave + texto escuro (contraste legível) */
+div[data-baseweb="popover"] li[aria-selected="true"],
+div[data-baseweb="menu"] li[aria-selected="true"] {
+    background: #FDF1E7 !important;
+    box-shadow: inset 3px 0 0 var(--ac-accent);
+}
+
+div[data-baseweb="popover"] li[aria-selected="true"] *,
+div[data-baseweb="menu"] li[aria-selected="true"] * {
+    color: var(--ac-ink) !important;
+    -webkit-text-fill-color: var(--ac-ink) !important;
+    font-weight: 600;
+}
+
+
+/* =========================================================
+   9. BOTÕES — um só padrão para o sistema inteiro
+   Primário (Próxima etapa, Finalizar, Baixar PDF, Entrar): asfalto sólido
+   Secundário (Voltar, Remover, Salvar...): branco com borda
+   ========================================================= */
+
+.stApp .stButton > button,
+.stApp .stDownloadButton > button,
+.stApp .stFormSubmitButton > button {
+    min-height: 48px !important;
+    padding: 8px 16px !important;
+    border-radius: var(--ac-radius) !important;
+    font-weight: 600 !important;
+    box-shadow: none !important;
+    transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+
+.stApp .stButton > button p,
+.stApp .stDownloadButton > button p,
+.stApp .stFormSubmitButton > button p {
+    font-size: 15px !important;
+    font-weight: 600 !important;
+    line-height: 1.25 !important;
+}
+
+/* Secundário */
+[data-testid="stMain"] button[kind="secondary"],
+[data-testid="stMain"] button[kind="secondaryFormSubmit"] {
+    background: var(--ac-surface) !important;
+    border: 1px solid var(--ac-line-strong) !important;
+    color: var(--ac-text) !important;
+}
+
+[data-testid="stMain"] button[kind="secondary"] p,
+[data-testid="stMain"] button[kind="secondaryFormSubmit"] p {
+    color: var(--ac-text) !important;
+}
+
+[data-testid="stMain"] button[kind="secondary"]:hover,
+[data-testid="stMain"] button[kind="secondaryFormSubmit"]:hover {
+    border-color: var(--ac-ink) !important;
+    background: var(--ac-surface-2) !important;
+}
+
+/* Primário */
+[data-testid="stMain"] button[kind="primary"],
+[data-testid="stMain"] button[kind="primaryFormSubmit"] {
+    background: var(--ac-ink) !important;
+    border: 1px solid var(--ac-ink) !important;
+    color: #FFFFFF !important;
+}
+
+[data-testid="stMain"] button[kind="primary"] p,
+[data-testid="stMain"] button[kind="primaryFormSubmit"] p {
+    color: #FFFFFF !important;
+}
+
+[data-testid="stMain"] button[kind="primary"]:hover,
+[data-testid="stMain"] button[kind="primaryFormSubmit"]:hover {
+    background: var(--ac-ink-hover) !important;
+    border-color: var(--ac-ink-hover) !important;
+}
+
+[data-testid="stMain"] button:focus-visible {
+    outline: none !important;
+    box-shadow: 0 0 0 3px var(--ac-focus) !important;
+}
+
+[data-testid="stMain"] button:disabled {
+    opacity: .45 !important;
+    cursor: not-allowed;
+}
+
+/* Botões de remover: discretos, em tom de alerta */
+[data-testid="stMain"] [class*="st-key-remove_"] button[kind="secondary"],
+[data-testid="stMain"] [class*="st-key-avaria_rm_"] button[kind="secondary"] {
+    min-height: 40px !important;
+    border-color: #E7C3C3 !important;
+    background: #FFFFFF !important;
+}
+
+[data-testid="stMain"] [class*="st-key-remove_"] button p,
+[data-testid="stMain"] [class*="st-key-avaria_rm_"] button p {
+    color: var(--ac-danger) !important;
+    font-size: 14px !important;
+}
+
+[data-testid="stMain"] [class*="st-key-remove_"] button:hover,
+[data-testid="stMain"] [class*="st-key-avaria_rm_"] button:hover {
+    background: #FDF3F3 !important;
+    border-color: var(--ac-danger) !important;
+}
+
+/* Confirmação de apagamento */
+[data-testid="stMain"] .st-key-confirm_clear_btn button {
+    background: var(--ac-danger) !important;
+    border-color: var(--ac-danger) !important;
+}
+
+/* Nível do tanque: rótulo + percentual em duas linhas */
+[data-testid="stMain"] [class*="st-key-fuel_"] button {
+    min-height: 56px !important;
+    padding: 6px 4px !important;
+}
+
+[data-testid="stMain"] [class*="st-key-fuel_"] button p {
+    font-size: 14px !important;
+}
+
+
+/* =========================================================
+   10. BOTÕES DE STATUS
+   Acessórios: SIM verde · NÃO vermelho · N/A cinza
+   Pneus:      BOM verde · REGULAR cinza · RUIM vermelho
+   Avarias:    ARRANHÃO vermelho · AMASSADO azul
+   ========================================================= */
+
+[data-testid="stMain"] div[class*="st-key-acc_"] button,
+[data-testid="stMain"] div[class*="st-key-t_"] button,
+[data-testid="stMain"] div[class*="st-key-damage_mark_"] button,
+[data-testid="stMain"] div[class*="st-key-dv_"] button {
+    min-height: 44px !important;
+    padding: 6px 8px !important;
+}
+
+/* Acessórios */
+div[class*="st-key-acc_"][class*="_sim"] button[kind="primary"] {
+    background: var(--ac-ok) !important;
+    border-color: var(--ac-ok) !important;
+}
+
+div[class*="st-key-acc_"][class*="_nao"] button[kind="primary"] {
+    background: var(--ac-danger) !important;
+    border-color: var(--ac-danger) !important;
+}
+
+/* N/A — exclui "_nao", pois "_nao" contém "_na" como substring */
+div[class*="st-key-acc_"][class*="_na"]:not([class*="_nao"]) button[kind="primary"] {
+    background: var(--ac-neutral) !important;
+    border-color: var(--ac-neutral) !important;
+}
+
+/* Pneus */
+div[class*="st-key-t_"][class*="_Bom"] button[kind="primary"] {
+    background: var(--ac-ok) !important;
+    border-color: var(--ac-ok) !important;
+}
+
+div[class*="st-key-t_"][class*="_Ruim"] button[kind="primary"] {
+    background: var(--ac-danger) !important;
+    border-color: var(--ac-danger) !important;
+}
+
+div[class*="st-key-t_"][class*="_Regular"] button[kind="primary"] {
+    background: var(--ac-neutral) !important;
+    border-color: var(--ac-neutral) !important;
+}
+
+/* Avarias */
+div[class*="st-key-damage_mark_x"] button[kind="primary"] {
+    background: #DC2626 !important;
+    border-color: #DC2626 !important;
+}
+
+div[class*="st-key-damage_mark_o"] button[kind="primary"] {
+    background: var(--ac-blue) !important;
+    border-color: var(--ac-blue) !important;
+}
+
+/* Marcador de cor antes do texto (ajuda a ler sem depender só da cor do botão) */
+div[class*="st-key-damage_mark_"] button p::before {
+    content: "";
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 8px;
+    vertical-align: 0;
+}
+
+div[class*="st-key-damage_mark_x"] button p::before { background: #DC2626; }
+div[class*="st-key-damage_mark_o"] button p::before { background: var(--ac-blue); }
+div[class*="st-key-damage_mark_"] button[kind="primary"] p::before { background: #FFFFFF; }
+
+
+/* =========================================================
+   11. FOTOS E UPLOAD
+   O botão padrão "Browse files" vira um bloco de captura claro:
+   ícone de câmera + texto. Os textos em inglês são ocultados.
+   ========================================================= */
+
+[data-testid="stFileUploader"] {
+    background: transparent !important;
+}
+
+[data-testid="stFileUploaderDropzone"] {
+    display: block !important;
+    width: 100% !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+}
+
+[data-testid="stFileUploaderDropzoneInstructions"],
+[data-testid="stFileUploaderDropzone"] small {
+    display: none !important;
+}
+
+[data-testid="stMain"] [data-testid="stFileUploaderDropzone"] button {
+    position: relative !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 6px;
+    width: 100% !important;
+    min-height: 96px !important;
+    padding: 12px !important;
+    box-sizing: border-box !important;
+    background: var(--ac-surface-2) !important;
+    border: 1.5px dashed var(--ac-line-strong) !important;
+    border-radius: var(--ac-radius) !important;
+    color: transparent !important;
+    font-size: 0 !important;
+    box-shadow: none !important;
+}
+
+[data-testid="stMain"] [data-testid="stFileUploaderDropzone"] button:hover,
+[data-testid="stMain"] [data-testid="stFileUploaderDropzone"] button:active {
+    background: #FDF6F0 !important;
+    border-color: var(--ac-accent) !important;
+}
+
+[data-testid="stFileUploaderDropzone"] button * {
+    display: none !important;
+}
+
+/* Ícone de câmera */
+[data-testid="stFileUploaderDropzone"] button::before {
+    content: "";
+    width: 28px;
+    height: 28px;
+    background-color: var(--ac-ink);
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 8h3l2-2.5h6L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z'/%3E%3Ccircle cx='12' cy='13' r='3.5'/%3E%3C/svg%3E") center / contain no-repeat;
+            mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 8h3l2-2.5h6L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z'/%3E%3Ccircle cx='12' cy='13' r='3.5'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+[data-testid="stFileUploaderDropzone"] button::after {
+    content: "Tirar ou enviar foto";
+    white-space: nowrap;
+    color: var(--ac-ink) !important;
+    font-family: var(--ac-font);
+    font-size: 14.5px !important;
+    font-weight: 600 !important;
+}
+
+/* Uploads de várias fotos (acessórios / avarias) */
+div[class*="st-key-extras_up"] [data-testid="stFileUploaderDropzone"] button::after,
+div[class*="st-key-avaria_up"] [data-testid="stFileUploaderDropzone"] button::after {
+    content: "Adicionar fotos";
+}
+
+/* Com a câmera direta ligada, o bloco de envio vira a opção "galeria" */
+[class*="st-key-ac_card"]:has([data-testid="stCameraInput"]) [data-testid="stFileUploaderDropzone"] button::after {
+    content: "Enviar da galeria";
+}
+
+/* Lista de arquivo que o Streamlit mostra por um instante após o envio */
+[data-testid="stFileUploaderFile"] {
+    padding: 6px 0 !important;
+}
+
+/* Fotos já salvas */
+[data-testid="stMain"] [data-testid="stImage"] img,
+[data-testid="stMain"] [data-testid="stFullScreenFrame"] img {
+    border-radius: var(--ac-radius) !important;
+    border: 1px solid var(--ac-line);
+    background: var(--ac-surface-2);
+}
+
+/* Câmera direta do navegador */
+[data-testid="stCameraInput"] {
+    max-width: 100% !important;
+}
+
+[data-testid="stCameraInput"] video,
+[data-testid="stCameraInput"] img {
+    border-radius: var(--ac-radius) !important;
+}
+
+/* Botão da câmera: texto padrão em inglês ("Take Photo") trocado por português */
+[data-testid="stCameraInputButton"] {
+    min-height: 44px !important;
+    border-radius: 0 0 var(--ac-radius) var(--ac-radius) !important;
+    background: var(--ac-ink) !important;
+    border: none !important;
+    color: transparent !important;
+    font-size: 0 !important;
+}
+
+[data-testid="stCameraInputButton"]::after {
+    content: "Capturar foto";
+    color: #FFFFFF;
+    font-family: var(--ac-font);
+    font-size: 14.5px;
+    font-weight: 600;
+}
+
+[data-testid="stCameraInputButton"]:disabled {
+    background: #9AA5B1 !important;
+}
+
+/* Aviso de permissão da câmera (inglês) */
+[data-testid="stCameraInputWebcamComponent"] p {
+    font-size: 0 !important;
+}
+
+[data-testid="stCameraInputWebcamComponent"] p a {
+    display: none !important;
+}
+
+[data-testid="stCameraInputWebcamComponent"] p::before {
+    content: "Permita o acesso à câmera no navegador para usar esta opção.";
+    font-size: 13px;
+    color: var(--ac-text-soft);
+    line-height: 1.4;
+}
+
+
+/* =========================================================
+   12. COMPONENTES DIVERSOS
+   ========================================================= */
+
+/* Métricas (painel / revisão) */
+[data-testid="stMetric"] {
+    background: var(--ac-surface) !important;
+    border: 1px solid var(--ac-line);
+    border-radius: var(--ac-radius-lg);
+    padding: 14px 16px;
+    box-shadow: var(--ac-shadow);
+    min-width: 0;
+}
+
+[data-testid="stMetricLabel"] p {
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    color: var(--ac-muted) !important;
+}
+
+[data-testid="stMetricValue"] {
+    font-family: var(--ac-font-display) !important;
+    font-size: 26px !important;
+    font-weight: 700 !important;
+    color: var(--ac-text) !important;
+    line-height: 1.2 !important;
+}
+
+[data-testid="stMetricValue"] > div {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Expander */
+[data-testid="stMain"] [data-testid="stExpander"] details summary {
+    min-height: 48px;
+    padding: 0 16px !important;
+    display: flex;
+    align-items: center;
+}
+
+[data-testid="stMain"] [data-testid="stExpander"] summary p {
+    font-weight: 600 !important;
+    font-size: 15px !important;
+    color: var(--ac-text) !important;
+}
+
+[data-testid="stMain"] [data-testid="stExpander"] summary:hover p {
+    color: var(--ac-ink) !important;
+}
+
+/* Alertas: cor pelo tipo, sem fundo gritante */
+[data-testid="stAlert"] > div {
+    border-radius: var(--ac-radius) !important;
+    border: 1px solid var(--ac-line) !important;
+    border-left-width: 4px !important;
+    background: var(--ac-surface) !important;
+    padding: 12px 14px !important;
+}
+
+[data-testid="stAlert"] p {
+    color: var(--ac-text) !important;
+    font-size: 14.5px !important;
+}
+
+[data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]) > div    { border-left-color: #2F6FB0 !important; background: #F4F8FC !important; }
+[data-testid="stAlert"]:has([data-testid="stAlertContentSuccess"]) > div { border-left-color: var(--ac-ok) !important; background: #F2FAF4 !important; }
+[data-testid="stAlert"]:has([data-testid="stAlertContentWarning"]) > div { border-left-color: #C98A0B !important; background: #FFFAEF !important; }
+[data-testid="stAlert"]:has([data-testid="stAlertContentError"]) > div   { border-left-color: var(--ac-danger) !important; background: #FDF4F4 !important; }
+
+/* Barra de progresso nativa (caso seja usada) */
+[data-testid="stProgress"] > div > div > div {
+    background: #E6E9ED !important;
+}
+
+[data-testid="stProgress"] > div > div > div > div {
+    background: var(--ac-accent) !important;
+}
+
+/* Spinner "Consultando placa..." */
+[data-testid="stSpinner"] p {
+    color: var(--ac-text-soft) !important;
+}
+
+/* Canvas (avarias / assinaturas): moldura discreta */
+[data-testid="stMain"] [data-testid="stIFrame"] {
+    border-radius: var(--ac-radius);
+}
+
+/* Resumo da revisão: linhas separadas */
+.st-key-ac_card_summary [data-testid="stElementContainer"] + [data-testid="stElementContainer"],
+.st-key-ac_card_recent [data-testid="stElementContainer"] + [data-testid="stElementContainer"] {
+    border-top: 1px solid #EDF0F3;
+    padding-top: 10px;
+}
+
+.st-key-ac_card_summary [data-testid="stVerticalBlock"],
+.st-key-ac_card_recent [data-testid="stVerticalBlock"] {
+    gap: 10px !important;
+}
+
+/* Login */
+.st-key-ac_login {
+    max-width: 440px;
+    margin: 4vh auto 0;
+}
+
+
+/* =========================================================
+   13. NAVEGAÇÃO ENTRE ETAPAS (Voltar / Próxima etapa)
+   Barra fixa no rodapé enquanto a etapa é preenchida.
+   ========================================================= */
+
+/* O sticky vai no invólucro externo: o pai dele é a coluna inteira da etapa */
+[data-testid="stVerticalBlockBorderWrapper"]:has(> div > .st-key-ac_nav) {
+    position: sticky !important;
+    bottom: 0;
+    z-index: 50;
+    margin-top: 8px;
+    padding: 10px 0 calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+    background: var(--ac-bg);
+    border-top: 1px solid var(--ac-line);
+    box-shadow: 0 -8px 16px -12px rgba(16, 24, 32, .18);
+}
+
+/* Telas com desenho/assinatura: a barra não pode ficar sobre a área de desenho */
+.stApp:has(iframe[title*="drawable_canvas"]) [data-testid="stVerticalBlockBorderWrapper"]:has(> div > .st-key-ac_nav) {
+    position: relative !important;
+    box-shadow: none;
+}
+
+.st-key-ac_nav [data-testid="stHorizontalBlock"] {
+    gap: 10px !important;
+}
+
+
+/* =========================================================
+   14. CELULAR / TABLET
+   ========================================================= */
+
+@media (max-width: 1024px) {
+    [data-testid="stMainBlockContainer"],
+    .block-container {
+        padding-left: 20px !important;
+        padding-right: 20px !important;
+    }
+}
+
+@media (max-width: 640px) {
+
+    [data-testid="stMainBlockContainer"],
+    .block-container {
+        padding-left: 12px !important;
+        padding-right: 12px !important;
+        padding-top: calc(var(--ac-bar-h) + 14px) !important;
+    }
+
+    [data-testid="stHeader"]::before {
+        font-size: 15.5px;
+        letter-spacing: 1.1px;
+    }
+
+    .ac-hero {
+        padding: 14px 14px 14px;
+    }
+
+    .ac-step-num {
+        width: 38px;
+        height: 38px;
+        font-size: 17px;
+    }
+
+    .ac-title {
+        font-size: 20px !important;
+    }
+
+    .ac-sub,
+    .ac-hero .hero-sub {
+        font-size: 14px;
+    }
+
+    .ac-meta {
+        margin-top: 12px;
+    }
+
+    [data-testid="stMain"] [data-testid="stForm"] {
+        padding: 16px !important;
+    }
+
+    /* Textos longos em botões quebram linha em vez de cortar */
+    .stApp .stButton > button,
+    .stApp .stDownloadButton > button {
+        white-space: normal !important;
+        height: auto !important;
+    }
+
+    /* 16px evita o zoom automático do iPhone ao tocar num campo */
+    .stTextInput input,
+    .stTextArea textarea,
+    .stSelectbox input,
+    .stApp [data-baseweb="select"] div {
+        font-size: 16px !important;
+    }
+
+    img,
+    video {
+        max-width: 100% !important;
+    }
+
+    div[data-baseweb="popover"] {
+        max-width: calc(100vw - 16px) !important;
+    }
+
+    div[data-baseweb="popover"] ul[role="listbox"],
+    div[data-baseweb="menu"] ul {
+        max-height: min(50vh, 340px) !important;
+        overflow-y: auto !important;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    div[data-baseweb="popover"] li {
+        min-height: 46px;
+    }
+
+    [data-testid="stMetricValue"] {
+        font-size: 22px !important;
+    }
+
+    /* ---- Linhas que devem continuar lado a lado no celular ----
+       O Streamlit empilha todas as colunas abaixo de 640px. Aqui mantemos
+       lado a lado apenas grupos curtos de botões, para o toque ficar rápido
+       e a tela não virar uma lista enorme. */
+    .st-key-ac_nav [data-testid="stHorizontalBlock"],
+    [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] [class*="st-key-acc_"]),
+    [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] [class*="st-key-t_"]),
+    [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] [class*="st-key-damage_mark_"]),
+    [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] [class*="st-key-dv_"]),
+    [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] [class*="st-key-fuel_"]),
+    [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] [data-testid="stMetric"]),
+    [data-testid="stExpander"] [data-testid="stHorizontalBlock"]:has([data-testid="stImage"]),
+    .st-key-ac_photo_grid [data-testid="stHorizontalBlock"] {
+        flex-wrap: wrap !important;
+        gap: 8px !important;
+    }
+
+    .st-key-ac_nav [data-testid="stHorizontalBlock"] > [data-testid="stColumn"],
+    [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] [class*="st-key-acc_"]) > [data-testid="stColumn"],
+    [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] [class*="st-key-t_"]) > [data-testid="stColumn"],
+    [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] [class*="st-key-damage_mark_"]) > [data-testid="stColumn"],
+    [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] [class*="st-key-dv_"]) > [data-testid="stColumn"],
+    [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] [class*="st-key-fuel_"]) > [data-testid="stColumn"],
+    [data-testid="stExpander"] [data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) > [data-testid="stColumn"],
+    .st-key-ac_photo_grid [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+        flex: 1 1 0 !important;
+        width: auto !important;
+        min-width: 0 !important;
+    }
+
+    /* Acessórios: 3 botões numa linha, observação na linha de baixo */
+    [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] [class*="st-key-acc_"]) > [data-testid="stColumn"]:nth-child(4) {
+        flex: 1 1 100% !important;
+    }
+
+    /* Métricas em grade 2 x 2 */
+    [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] [data-testid="stMetric"]) > [data-testid="stColumn"] {
+        flex: 1 1 calc(50% - 4px) !important;
+        width: auto !important;
+        min-width: calc(50% - 4px) !important;
+    }
+
+    /* Nível do tanque: 5 botões compactos */
+    [data-testid="stMain"] [class*="st-key-fuel_"] button {
+        padding: 4px 2px !important;
+    }
+
+    [data-testid="stMain"] [class*="st-key-fuel_"] button p {
+        font-size: 13px !important;
+    }
+
+    /* Fotos em grade de 2 colunas: blocos de captura mais baixos */
+    .st-key-ac_photo_grid [data-testid="stFileUploaderDropzone"] button {
+        min-height: 84px !important;
+    }
+
+    .st-key-ac_photo_grid [data-testid="stFileUploaderDropzone"] button::after {
+        content: "Tirar foto";
+    }
+
+    .st-key-ac_photo_grid [class*="st-key-ac_card"]:has([data-testid="stCameraInput"]) [data-testid="stFileUploaderDropzone"] button::after {
+        content: "Da galeria";
+    }
+
+    [data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"]:has(> div > [class*="st-key-ac_card"]) {
+        padding: 12px !important;
+    }
+
+    .st-key-ac_photo_grid .ac-section-title {
+        font-size: 15px;
+    }
+
+    .st-key-ac_photo_grid [class*="st-key-remove_"] button p {
+        font-size: 13px !important;
+    }
+}
+
+@media (max-width: 380px) {
+
+    [data-testid="stHeader"]::before {
+        font-size: 14px;
+        letter-spacing: .8px;
+        padding-left: 30px;
+        background-size: 22px 22px;
+    }
+
+    .ac-title {
+        font-size: 18.5px !important;
+    }
+
+    .ac-step-num {
+        width: 34px;
+        height: 34px;
+        font-size: 15px;
+    }
+
+    [data-testid="stMain"] div[class*="st-key-acc_"] button p,
+    [data-testid="stMain"] div[class*="st-key-t_"] button p,
+    [data-testid="stMain"] div[class*="st-key-dv_"] button p {
+        font-size: 13.5px !important;
+    }
+
+    .stApp .st-key-ac_nav .stButton > button {
+        padding: 8px 10px !important;
+    }
+
+    .stApp .st-key-ac_nav .stButton > button p {
+        font-size: 14px !important;
+        white-space: nowrap;
+    }
+}
