@@ -414,16 +414,22 @@ st.markdown(page_styles(), unsafe_allow_html=True)
 
 @st.cache_resource(show_spinner=False)
 def preparar_banco():
-    """Uma vez por processo: cria as tabelas, importa os JSON antigos (sem apagá-los) e,
+    """Uma vez por processo: escolhe o banco ([database] url nos Secrets = PostgreSQL permanente;
+    sem isso, SQLite local), cria as tabelas, importa os JSON antigos (sem apagá-los) e,
     se houver [superadmin] nos Secrets, garante que o Super Admin exista."""
+    cfg, banco = {}, {}
+    try:
+        if st.secrets.load_if_toml_exists():   # sem arquivo: não mostra aviso
+            banco = dict(st.secrets["database"]) if "database" in st.secrets else {}
+            cfg = dict(st.secrets["superadmin"]) if "superadmin" in st.secrets else {}
+    except Exception:
+        cfg, banco = {}, {}
+    # LAUDO_TESTE: os testes automáticos nunca usam o banco real configurado nos Secrets.
+    if (str(banco.get("url", "")).startswith("postgres") and not sdb.usando_postgres()
+            and not os.environ.get("LAUDO_TESTE")):
+        sdb.configurar_postgres(banco["url"])
     sdb.inicializar()
     resumo = migracao.importar_legado()
-    cfg = {}
-    try:
-        if st.secrets.load_if_toml_exists() and "superadmin" in st.secrets:   # sem arquivo: não mostra aviso
-            cfg = dict(st.secrets["superadmin"])
-    except Exception:
-        cfg = {}
     if cfg.get("login") and cfg.get("senha"):
         migracao.garantir_super_admin(cfg["login"], cfg.get("nome", ""), cfg["senha"])
     return resumo

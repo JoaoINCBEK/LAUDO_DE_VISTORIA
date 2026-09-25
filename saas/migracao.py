@@ -73,7 +73,7 @@ def importar_legado():
         por_nome = {}
         for u in users:
             login = str(u.get("usuario", "")).strip()
-            if not login or con.execute("SELECT 1 FROM usuarios WHERE login = ?", (login,)).fetchone():
+            if not login or con.execute("SELECT 1 FROM usuarios WHERE lower(login) = lower(?)", (login,)).fetchone():
                 continue
             perfil = "admin" if u.get("perfil") == "Administrador" else "vistoriador"
             senha = str(u.get("senha", ""))
@@ -142,7 +142,7 @@ def garantir_super_admin(login, nome, senha):
         raise ValueError(msg)
     agora = db.agora()
     with db.conectar() as con:
-        if con.execute("SELECT 1 FROM usuarios WHERE login = ?", (login,)).fetchone():
+        if con.execute("SELECT 1 FROM usuarios WHERE lower(login) = lower(?)", (login,)).fetchone():
             return False
         con.execute("INSERT INTO usuarios(empresa_id, login, nome, email, senha_hash, perfil, status, trocar_senha, "
                     "created_at, updated_at) VALUES (NULL,?,?,'',?,'super_admin','ativo',0,?,?)",

@@ -1,13 +1,16 @@
-"""Banco de dados (SQLite) e utilidades de data/hora.
+"""Banco de dados (SQLite ou PostgreSQL) e utilidades de data/hora.
 
-Decisão: SQLite, pois já faz parte do Python (sem dependência nova), suporta
-relacionamentos, índices, transações e consultas com filtro. Todo acesso passa
-por este módulo e por `servicos.py`; para migrar para PostgreSQL no futuro basta
-trocar a conexão e o dialeto aqui, sem mexer nas telas.
+- Sem configuração: SQLite em <LAUDO_DATA_DIR>/laudo.db (padrão: autocheck_data/laudo.db).
+  É o modo usado no computador e nos testes.
+- Com endereço de PostgreSQL (Secrets [database] url, ou variável LAUDO_DATABASE_URL):
+  os dados ficam num banco permanente (ex.: Neon, Supabase). É o modo de produção:
+  nada se perde quando o Streamlit Cloud reinicia.
 
-Local do banco: <LAUDO_DATA_DIR>/laudo.db (padrão: autocheck_data/laudo.db).
+O resto do sistema escreve SQL no estilo SQLite (parâmetros "?"); aqui ele é
+adaptado para o PostgreSQL ("%s", ILIKE, RETURNING id). As telas não mudam.
 """
 import os
+import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -20,6 +23,9 @@ SCHEMA_VERSION = 1
 TZ = timezone(timedelta(hours=-3))
 
 _db_path_override = None
+_pg_url = os.environ.get("LAUDO_DATABASE_URL") or None
+_pg_schema = None
+_pool = None
 
 
 def data_dir():
@@ -36,6 +42,26 @@ def set_db_path(path):
     """Usado nos testes para apontar para um banco temporário."""
     global _db_path_override
     _db_path_override = str(path) if path else None
+
+
+def configurar_postgres(url, schema=None):
+    """Passa a usar o PostgreSQL do endereço informado (None = volta ao SQLite).
+    `schema` separa os dados (usado pelos testes para não tocar nos dados reais)."""
+    global _pg_url, _pg_schema, _pool
+    if _pool is not None:
+        _pool.close()
+    _pg_url, _pg_schema, _pool = (url or None), schema, None
+
+
+def usando_postgres():
+    return bool(_pg_url)
+
+
+def descricao_banco():
+    if usando_postgres():
+        host = re.sub(r"^.*@", "", _pg_url).split("/")[0].split("?")[0]
+        return f"PostgreSQL ({host})"
+    return f"SQLite ({db_path()})"
 
 
 def agora():
@@ -77,9 +103,114 @@ def iso_de_br(texto):
     return None
 
 
+def eh_duplicado(exc):
+    """True se o erro for violação de UNIQUE (nos dois bancos)."""
+    if getattr(exc, "sqlstate", None) == "23505":
+        return True
+    return isinstance(exc, sqlite3.IntegrityError) and "UNIQUE" in str(exc)
+
+
+# ---------------------------------------------------------------------------
+# PostgreSQL: adaptação mínima para o mesmo uso que o sqlite3
+# ---------------------------------------------------------------------------
+class Linha:
+    """Linha de resultado acessível por nome (r["col"]) e posição (r[0]),
+    conversível com dict(r) e desempacotável — igual ao sqlite3.Row."""
+    __slots__ = ("_nomes", "_valores")
+
+    def __init__(self, nomes, valores):
+        self._nomes, self._valores = nomes, tuple(valores)
+
+    def __getitem__(self, k):
+        if isinstance(k, (int, slice)):
+            return self._valores[k]
+        return self._valores[self._nomes.index(k)]
+
+    def keys(self):
+        return list(self._nomes)
+
+    def __iter__(self):
+        return iter(self._valores)
+
+    def __len__(self):
+        return len(self._valores)
+
+
+def _fabrica_linhas(cursor):
+    nomes = [d.name for d in (cursor.description or [])]
+    return lambda valores: Linha(nomes, valores)
+
+
+_TABELAS_COM_ID = {"planos", "empresas", "usuarios", "clientes", "veiculos", "vistorias", "laudos", "emitentes", "logs"}
+_RE_INSERT = re.compile(r"^\s*INSERT\s+INTO\s+(\w+)", re.I)
+
+
+def _sql_pg(sql):
+    sql = sql.replace("?", "%s")
+    return re.sub(r"\bLIKE\b", "ILIKE", sql)
+
+
+class _CursorPG:
+    def __init__(self, cur, lastrowid=None):
+        self._cur, self.lastrowid = cur, lastrowid
+
+    def fetchone(self):
+        return self._cur.fetchone() if self._cur.description else None
+
+    def fetchall(self):
+        return self._cur.fetchall() if self._cur.description else []
+
+    def __iter__(self):
+        return iter(self.fetchall())
+
+
+class _ConexaoPG:
+    def __init__(self, con):
+        self._con = con
+
+    def execute(self, sql, params=()):
+        cur = self._con.cursor(row_factory=_fabrica_linhas)
+        m = _RE_INSERT.match(sql)
+        retorna_id = bool(m and m.group(1).lower() in _TABELAS_COM_ID and "RETURNING" not in sql.upper())
+        cur.execute(_sql_pg(sql) + (" RETURNING id" if retorna_id else ""), tuple(params))
+        lastrowid = cur.fetchone()[0] if retorna_id else None
+        return _CursorPG(cur, lastrowid)
+
+    def executescript(self, script):
+        for comando in (c.strip() for c in script.split(";")):
+            if comando:
+                self._con.execute(comando)
+
+
+def _obter_pool():
+    global _pool
+    if _pool is None:
+        import psycopg                            # só é necessário no modo PostgreSQL
+        from psycopg_pool import ConnectionPool
+
+        if _pg_schema:   # schema próprio (testes): criado uma vez, antes das conexões do pool
+            with psycopg.connect(_pg_url, prepare_threshold=None, autocommit=True) as c:
+                c.execute(f'CREATE SCHEMA IF NOT EXISTS "{_pg_schema}"')
+
+        def _preparar(con):
+            if _pg_schema:
+                con.execute(f'SET search_path TO "{_pg_schema}"')
+            con.commit()
+
+        # prepare_threshold=None: compatível com os "poolers" (PgBouncer) do Neon/Supabase.
+        _pool = ConnectionPool(_pg_url, min_size=1, max_size=5, timeout=30, max_idle=300,
+                               kwargs={"prepare_threshold": None, "autocommit": False},
+                               configure=_preparar, check=ConnectionPool.check_connection, open=True)
+    return _pool
+
+
 @contextmanager
 def conectar():
-    """Conexão curta por operação. Confirma no fim; desfaz em caso de erro."""
+    """Conexão/transação curta por operação. Confirma no fim; desfaz em caso de erro."""
+    if usando_postgres():
+        with _obter_pool().connection() as con:     # commit/rollback automáticos
+            yield _ConexaoPG(con)
+        return
     path = db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(str(path), timeout=30)
@@ -263,12 +394,34 @@ CREATE INDEX IF NOT EXISTS ix_logs_vistoria ON logs(vistoria_id);
 """
 
 
+def _schema_pg():
+    """O mesmo esquema, no dialeto do PostgreSQL."""
+    s = re.sub(r"--[^\n]*", "", SCHEMA)
+    s = s.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY")
+    s = re.sub(r"INTEGER( NOT NULL)? REFERENCES", r"BIGINT\1 REFERENCES", s)
+    s = s.replace(" COLLATE NOCASE", "")
+    # usuário/e-mail/plano sem diferenciar maiúsculas (no SQLite isso vem do COLLATE NOCASE)
+    s += """
+CREATE UNIQUE INDEX IF NOT EXISTS ux_usuarios_login_lower ON usuarios (lower(login));
+CREATE UNIQUE INDEX IF NOT EXISTS ux_planos_nome_lower ON planos (lower(nome));
+"""
+    return s
+
+
+TABELAS = ["meta", "planos", "empresas", "usuarios", "sessoes", "clientes", "veiculos",
+           "vistorias", "laudos", "emitentes", "logs"]
+
+
 def inicializar():
     """Cria as tabelas (idempotente)."""
     with conectar() as con:
-        con.execute("PRAGMA journal_mode = WAL")
-        con.executescript(SCHEMA)
-        con.execute("INSERT OR IGNORE INTO meta(chave, valor) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
+        if usando_postgres():
+            con.executescript(_schema_pg())
+        else:
+            con.execute("PRAGMA journal_mode = WAL")
+            con.executescript(SCHEMA)
+        con.execute("INSERT INTO meta(chave, valor) VALUES ('schema_version', ?) ON CONFLICT(chave) DO NOTHING",
+                    (str(SCHEMA_VERSION),))
 
 
 def meta_get(chave, padrao=None):

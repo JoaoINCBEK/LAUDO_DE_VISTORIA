@@ -146,7 +146,7 @@ def autenticar(login, senha, ip=""):
         return None, "Informe usuário e senha."
     erro_padrao = "Usuário ou senha inválidos."
     with db.conectar() as con:
-        u = con.execute("SELECT * FROM usuarios WHERE login = ? OR (email <> '' AND email = ?)",
+        u = con.execute("SELECT * FROM usuarios WHERE lower(login) = lower(?) OR (email <> '' AND lower(email) = lower(?))",
                         (login, login)).fetchone()
         if not u:
             return None, erro_padrao
@@ -301,7 +301,7 @@ def salvar_plano(ator, dados, plano_id=None):
             registrar(ator, "plano_criado", f"Plano {nome}", con=con)
             return cur.lastrowid
         except Exception as exc:
-            if "UNIQUE" in str(exc):
+            if db.eh_duplicado(exc):
                 raise ErroNegocio("Já existe um plano com esse nome.")
             raise
 
@@ -524,9 +524,9 @@ def criar_usuario(ator, dados, empresa_id=None):
     with db.conectar() as con:
         if emp is not None:
             _checar_limite_usuarios(con, emp)
-        if con.execute("SELECT 1 FROM usuarios WHERE login = ?", (login,)).fetchone():
+        if con.execute("SELECT 1 FROM usuarios WHERE lower(login) = lower(?)", (login,)).fetchone():
             raise ErroNegocio("Esse usuário já existe.")
-        if email and con.execute("SELECT 1 FROM usuarios WHERE email = ?", (email,)).fetchone():
+        if email and con.execute("SELECT 1 FROM usuarios WHERE lower(email) = lower(?)", (email,)).fetchone():
             raise ErroNegocio("Esse e-mail já está em uso.")
         cur = con.execute(
             "INSERT INTO usuarios(empresa_id, login, nome, email, senha_hash, perfil, status, trocar_senha, "
@@ -552,7 +552,7 @@ def atualizar_usuario(ator, usuario_id, dados):
             raise AcessoNegado("Perfil não permitido.")
         if u["id"] == ator.id and perfil != u["perfil"]:
             raise ErroNegocio("Você não pode alterar o seu próprio perfil.")
-        if email and con.execute("SELECT 1 FROM usuarios WHERE email = ? AND id <> ?", (email, u["id"])).fetchone():
+        if email and con.execute("SELECT 1 FROM usuarios WHERE lower(email) = lower(?) AND id <> ?", (email, u["id"])).fetchone():
             raise ErroNegocio("Esse e-mail já está em uso.")
         con.execute("UPDATE usuarios SET nome = ?, email = ?, perfil = ?, updated_at = ? WHERE id = ?",
                     (nome, email, perfil, db.agora(), u["id"]))
@@ -687,7 +687,7 @@ def iniciar_vistoria(ator, dados):
                 registrar(ator, "vistoria_iniciada", f"{ator.nome} iniciou a vistoria {numero}", vistoria_id=vid, con=con)
                 return vid, numero
         except Exception as exc:
-            if "UNIQUE" not in str(exc):
+            if not db.eh_duplicado(exc):
                 raise
     raise ErroNegocio("Não foi possível numerar a vistoria. Tente novamente.")
 
@@ -1006,7 +1006,7 @@ def listar_veiculos(ator, empresa_id=None, busca=None):
     if busca:
         sql += " AND (ve.placa LIKE ? OR ve.marca LIKE ? OR ve.modelo LIKE ? OR c.nome LIKE ?)"
         params += [f"%{_placa(busca) or busca}%", f"%{busca}%", f"%{busca}%", f"%{busca}%"]
-    sql += " ORDER BY ultima_vistoria DESC, ve.placa"
+    sql += " ORDER BY ultima_vistoria DESC NULLS LAST, ve.placa"
     with db.conectar() as con:
         return _rows(con.execute(sql, params))
 

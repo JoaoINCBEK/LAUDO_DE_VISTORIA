@@ -6,3 +6,4 @@ numpy>=1.26
 requests>=2.31,<3
 beautifulsoup4>=4.12,<5
 curl_cffi>=0.7,<1
+psycopg[binary,pool]>=3.2,<4

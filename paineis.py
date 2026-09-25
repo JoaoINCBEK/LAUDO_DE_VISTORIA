@@ -1044,6 +1044,9 @@ def pg_integracoes(ctx):
                 f"Status: {r.status}. " + (r.message or ", ".join(f"{k}: {v}" for k, v in list(r.data.items())[:5])))
             S.registrar(ctx.ator, "integracao_teste", f"Teste da consulta de placa: {r.status}")
     with st.container(border=True, key="ac_card_int_db"):
-        st.markdown(section_html("Banco de dados", "SQLite local"), unsafe_allow_html=True)
-        st.caption(f"Arquivo: {db.db_path()}. Em hospedagens com disco temporário (ex.: Streamlit Community Cloud), "
-                   "use um banco externo para não perder dados em reinicializações.")
+        st.markdown(section_html("Banco de dados", db.descricao_banco()), unsafe_allow_html=True)
+        if db.usando_postgres():
+            st.caption("Banco permanente: os dados não se perdem quando o app reinicia.")
+        else:
+            st.warning("Banco local (SQLite). Em hospedagens com disco temporário (ex.: Streamlit Community Cloud) "
+                       "os dados se perdem ao reiniciar. Configure a seção [database] nos Secrets.")
