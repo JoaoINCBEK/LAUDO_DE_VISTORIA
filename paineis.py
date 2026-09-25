@@ -1042,6 +1042,9 @@ def pg_empresas(ctx):
     cabecalho("Empresas", "Clientes da plataforma, planos, limites e situação.")
     if st.session_state.pop("emp_criada", None):
         st.success("Empresa criada. Agora crie o primeiro administrador.")
+    msg_exc = st.session_state.pop("emp_excluida", None)
+    if msg_exc:
+        st.success(msg_exc)
     with st.expander("＋ Nova empresa", expanded=False):
         d = _form_dados_empresa("ne_", {})
         st.markdown(section_html("Plano e limites"), unsafe_allow_html=True)
@@ -1101,6 +1104,20 @@ def pg_gerenciar_empresa(ctx):
             if st.button("Aplicar ajuste", use_container_width=True, key="ge_cons_btn"):
                 if protegido(S.ajustar_consumo, ctx.ator, eid, novo)[0]:
                     st.rerun()
+        with st.container(border=True, key="ac_card_ge_excluir"):
+            st.markdown(section_html("Excluir empresa", "Ação permanente"), unsafe_allow_html=True)
+            st.warning(f"Apaga a empresa **{e['nome']}** com todas as vistorias, laudos (PDFs), usuários, "
+                       "clientes, veículos e emitentes. Os logs são mantidos. Não é possível desfazer.")
+            nome_conf = st.text_input("Para confirmar, digite o nome da empresa", key=f"ge_exc_nome_{eid}")
+            if st.button("Excluir empresa definitivamente", type="primary", use_container_width=True,
+                         disabled=nome_conf.strip() != e["nome"].strip(), key=f"ge_exc_btn_{eid}"):
+                ok, r = protegido(S.excluir_empresa, ctx.ator, eid, nome_conf)
+                if ok:
+                    for k in ("empresa_aberta", "vistoria_aberta", "veiculo_aberto", "cliente_aberto"):
+                        st.session_state.pop(k, None)
+                    st.session_state["emp_excluida"] = (f"Empresa {e['nome']} excluída: {r['vistorias']} vistoria(s), "
+                                                        f"{r['laudos']} laudo(s), {r['usuarios']} usuário(s).")
+                    ir("sa_empresas")
     elif escolha == "Usuários":
         pg_usuarios(ctx, eid)
     elif escolha == "Vistorias":

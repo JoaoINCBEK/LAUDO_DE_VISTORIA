@@ -163,6 +163,37 @@ class TestIsolamento(Base):
         with self.assertRaises(AcessoNegado):
             S.retomar_vistoria(self.su, self.vid_a)
 
+    def test_super_admin_exclui_empresa_por_completo(self):
+        S.salvar_emitente(self.admin_a, {"empresa": "Emitente Alfa"})
+        token_a = S.criar_sessao(self.admin_a)
+        pdf_a = S.caminho_pdf(S.listar_laudos(self.su, empresa_id=self.ea)[0]["arquivo_pdf"])
+        self.assertTrue(pdf_a.exists())
+        # só o Super Admin, e só com o nome exato
+        for ator in (self.admin_a, self.vist_a, self.admin_b):
+            with self.assertRaises(AcessoNegado):
+                S.excluir_empresa(ator, self.ea, "Alfa")
+        with self.assertRaises(S.ErroNegocio):
+            S.excluir_empresa(self.su, self.ea, "Beta")
+
+        r = S.excluir_empresa(self.su, self.ea, "Alfa")
+        self.assertEqual((r["vistorias"], r["laudos"], r["usuarios"]), (1, 1, 2))
+        self.assertNotIn(self.ea, [e["id"] for e in S.listar_empresas(self.su)])
+        self.assertFalse(pdf_a.exists())
+        self.assertIsNone(S.autenticar("admin@alfa.com", "adminSenha1")[0])
+        self.assertIsNone(S.validar_sessao(token_a))
+        with db.conectar() as con:
+            for tabela in ("vistorias", "laudos", "usuarios", "clientes", "veiculos", "emitentes",
+                           "sessoes", "assinaturas_remotas"):
+                n = con.execute(f"SELECT COUNT(*) FROM {tabela} WHERE empresa_id = ?", (self.ea,)).fetchone()[0]
+                self.assertEqual(n, 0, tabela)
+        # logs antigos mantidos (marcados com o nome) + registro da exclusão
+        logs = S.listar_logs(self.su, limite=1000)
+        self.assertTrue(any(l["descricao"].startswith("[Alfa] ") for l in logs))
+        self.assertTrue(any(l["acao"] == "empresa_excluida" and "Alfa" in l["descricao"] for l in logs))
+        # a outra empresa não foi afetada
+        self.assertEqual(len(S.listar_vistorias(self.admin_b)), 1)
+        self.assertTrue(S.caminho_pdf(S.listar_laudos(self.admin_b)[0]["arquivo_pdf"]).exists())
+
 
 class TestPermissoes(Base):
     def setUp(self):

@@ -8,6 +8,7 @@ sempre filtrados também por empresa (e, para o vistoriador, pelo próprio usuá
 """
 import json
 import re
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -428,6 +429,49 @@ def definir_status_empresa(ator, empresa_id, status):
         if status != "ativa":
             _revogar_sessoes(con, empresa_id=int(empresa_id))    # derruba quem estiver logado
         registrar(ator, "empresa_status", f"{e['nome']}: {STATUS_EMPRESA[status]}", empresa_id=int(empresa_id), con=con)
+
+
+def excluir_empresa(ator, empresa_id, confirmacao_nome):
+    """Super Admin: exclui a empresa por completo (vistorias, laudos, assinaturas, veículos,
+    clientes, emitentes, usuários e PDFs). Os logs são mantidos, desvinculados da empresa
+    e marcados com o nome dela; a exclusão fica registrada na auditoria global."""
+    exigir(ator, "plataforma.gerenciar")
+    emp = int(empresa_id)
+    with db.conectar() as con:
+        e = con.execute("SELECT nome, cnpj FROM empresas WHERE id = ?", (emp,)).fetchone()
+        if not e:
+            raise ErroNegocio("Empresa não encontrada.")
+        if (confirmacao_nome or "").strip() != e["nome"].strip():
+            raise ErroNegocio("Digite o nome da empresa exatamente como cadastrado para confirmar.")
+        arquivos = [r["arquivo_pdf"] for r in con.execute("SELECT arquivo_pdf FROM laudos WHERE empresa_id = ?", (emp,))]
+        arquivos += [r["arquivo_assinado"] for r in con.execute(
+            "SELECT arquivo_assinado FROM assinaturas_remotas WHERE empresa_id = ? AND arquivo_assinado <> ''", (emp,))]
+        q = lambda sql: con.execute(sql, (emp,)).fetchone()[0]
+        n_vist = q("SELECT COUNT(*) FROM vistorias WHERE empresa_id = ?")
+        n_laudos = q("SELECT COUNT(*) FROM laudos WHERE empresa_id = ?")
+        n_usr = q("SELECT COUNT(*) FROM usuarios WHERE empresa_id = ?")
+        n_cli = q("SELECT COUNT(*) FROM clientes WHERE empresa_id = ?")
+
+        usuarios_emp = "SELECT id FROM usuarios WHERE empresa_id = ?"
+        con.execute(f"DELETE FROM sessoes WHERE empresa_id = ? OR usuario_id IN ({usuarios_emp})", (emp, emp))
+        # logs ficam: sem vínculo (FK) com a empresa/usuários apagados, mas com o nome da empresa no texto
+        con.execute(f"UPDATE logs SET usuario_id = NULL WHERE usuario_id IN ({usuarios_emp})", (emp,))
+        con.execute("UPDATE logs SET empresa_id = NULL, vistoria_id = NULL, descricao = CAST(? AS TEXT) || descricao "
+                    "WHERE empresa_id = ?", (f"[{e['nome']}] ", emp))
+        for tabela in ("assinaturas_remotas", "laudos", "vistorias", "veiculos", "clientes", "emitentes", "usuarios"):
+            con.execute(f"DELETE FROM {tabela} WHERE empresa_id = ?", (emp,))
+        con.execute("DELETE FROM empresas WHERE id = ?", (emp,))
+        registrar(ator, "empresa_excluida",
+                  f"Empresa {e['nome']}" + (f" (CNPJ {e['cnpj']})" if e["cnpj"] else "")
+                  + f" excluída: {n_vist} vistoria(s), {n_laudos} laudo(s), {n_usr} usuário(s), {n_cli} cliente(s)",
+                  con=con)
+    for rel in arquivos:
+        try:
+            caminho_pdf(rel).unlink(missing_ok=True)
+        except Exception:
+            pass
+    shutil.rmtree(db.data_dir() / "pdfs" / f"emp_{emp}", ignore_errors=True)
+    return {"vistorias": n_vist, "laudos": n_laudos, "usuarios": n_usr, "clientes": n_cli}
 
 
 def ajustar_consumo(ator, empresa_id, vistorias_utilizadas):
