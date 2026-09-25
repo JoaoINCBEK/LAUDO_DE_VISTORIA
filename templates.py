@@ -4,16 +4,23 @@ from html import escape
 
 BASE_DIR = Path(__file__).resolve().parent
 CSS_FILE = BASE_DIR / "style.css"
+ASSETS_DIR = BASE_DIR / "assets"
 
-# Marca do sistema: escudo com "check" (vistoria / segurança). SVG inline, sem arquivos extras.
-BRAND_MARK = (
-    '<svg class="ac-mark" viewBox="0 0 32 32" aria-hidden="true">'
-    '<rect width="32" height="32" rx="7" fill="#E3751C"/>'
-    '<path d="M16 6.5l7.5 3v5.6c0 4.7-3.1 8.7-7.5 10.4-4.4-1.7-7.5-5.7-7.5-10.4V9.5z" '
-    'fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>'
-    '<path d="M12.4 15.8l2.6 2.6 4.8-5" fill="none" stroke="#fff" stroke-width="2.2" '
-    'stroke-linecap="round" stroke-linejoin="round"/></svg>'
-)
+def _svg_inline(nome, classe, rotulo=None):
+    """SVG da marca (assets/) em uma linha, para usar dentro do HTML.
+    Tira largura/altura fixas (o tamanho vem do CSS) e, se for decorativo, o <title>."""
+    svg = (ASSETS_DIR / nome).read_text(encoding="utf-8").strip()
+    tag, resto = svg.split(">", 1)
+    tag = re.sub(r'\s(?:width|height|role|aria-label)="[^"]*"', "", tag)
+    extra = f' role="img" aria-label="{escape(rotulo)}"' if rotulo else ' aria-hidden="true"'
+    if not rotulo:
+        resto = re.sub(r"<title>.*?</title>", "", resto)
+    return f'{tag} class="{classe}"{extra}>{resto}'.replace("\n", "")
+
+# Marca CH360 (vetorial: nítida em qualquer tela). Os arquivos-fonte ficam em assets/.
+BRAND_MARK = _svg_inline("ch360_icone.svg", "ac-mark")                                   # só o ícone
+BRAND_LOGO = _svg_inline("ch360_logo.svg", "ac-brand-logo", "CH360 Vistoria Veicular")   # fundo claro
+BRAND_SIDE = _svg_inline("ch360_marca_escuro.svg", "ac-side-logo", "CH360")              # fundo escuro
 
 def _compact(html):
     """Remove recuos/linhas vazias: evita que o Markdown trate o HTML como código."""
@@ -60,23 +67,17 @@ def card_html(title, subtitle=""):
     </div>
     """)
 
-def brand_html(subtitle="Inspeção veicular digital"):
-    """Marca completa (tela de login)."""
-    return _compact(f"""
-    <div class="ac-brand">
-        {BRAND_MARK}
-        <div>
-            <div class="ac-brand-name">LAUDO DE VISTORIA</div>
-            <div class="ac-brand-sub">{escape(str(subtitle))}</div>
-        </div>
-    </div>
-    """)
+def brand_html(subtitle=""):
+    """Marca completa (tela de login). "VISTORIA VEICULAR" já faz parte da logo:
+    o subtítulo só aparece se for outro texto."""
+    sub = str(subtitle or "").strip()
+    sub_html = f'<div class="ac-brand-sub">{escape(sub)}</div>' if sub and sub.lower() != "vistoria veicular" else ""
+    return f'<div class="ac-brand">{BRAND_LOGO}{sub_html}</div>'
 
 def sidebar_brand_html(name, role):
     return _compact(f"""
     <div class="ac-side-brand">
-        {BRAND_MARK}
-        <div class="ac-brand-name">LAUDO DE VISTORIA</div>
+        {BRAND_SIDE}
     </div>
     <div class="ac-side-user">
         <div class="ac-avatar">{escape(str(name or "?")[:1].upper())}</div>

@@ -1,7 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Semi+Condensed:wght@600;700&display=swap');
 
 /* =========================================================
-   LAUDO DE VISTORIA — folha de estilo única
+   CH360 — folha de estilo única
    Somente aparência: nenhuma regra aqui altera comportamento.
    Ordem: 1 tokens · 2 base · 3 barra superior · 4 sidebar
           5 cabeçalho de etapa · 6 cartões · 7 formulários
@@ -34,9 +34,10 @@
 
     --ac-ink: #1B2A38;          /* asfalto: marca, ação principal */
     --ac-ink-hover: #0F1B26;
-    --ac-accent: #E3751C;       /* laranja de sinalização: destaques pontuais */
-    --ac-accent-soft: rgba(227, 117, 28, .14);
-    --ac-focus: rgba(227, 117, 28, .22);
+    --ac-accent: #0A6CF0;       /* azul CH360 (tom do "360" da logo): destaques pontuais */
+    --ac-accent-hover: #0858C8;
+    --ac-accent-soft: rgba(10, 108, 240, .14);
+    --ac-focus: rgba(10, 108, 240, .22);
 
     --ac-ok: #15803D;
     --ac-danger: #C62828;
@@ -172,23 +173,18 @@ footer {
     box-shadow: 0 1px 0 rgba(0, 0, 0, .12);
 }
 
-/* Nome do sistema na barra: aparece em todas as telas */
+/* Marca CH360 na barra (ícone + "CH" branco + "360" azul): aparece em todas as telas.
+   É o SVG assets/ch360_marca_escuro.svg embutido, vetorial = nítido em qualquer tela.
+   Proporção do desenho: 3,85 : 1 (largura = altura x 3,85). */
 [data-testid="stHeader"]::before {
-    content: "LAUDO DE VISTORIA";
+    content: "";
     position: absolute;
     left: 64px;
     top: 50%;
     transform: translateY(-50%);
-    padding-left: 34px;
-    height: 26px;
-    line-height: 26px;
-    font-family: var(--ac-font-display);
-    font-weight: 700;
-    font-size: 17px;
-    letter-spacing: 1.4px;
-    color: #FFFFFF;
-    white-space: nowrap;
-    background: no-repeat left center / 26px 26px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23E3751C'/%3E%3Cpath d='M16 6.5l7.5 3v5.6c0 4.7-3.1 8.7-7.5 10.4-4.4-1.7-7.5-5.7-7.5-10.4V9.5z' fill='none' stroke='%23fff' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M12.4 15.8l2.6 2.6 4.8-5' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    width: 124px;
+    height: 32px;
+    background: no-repeat left center / contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 770 200' width='770' height='200'%3E%3Cdefs%3E%3ClinearGradient id='ch360me-bg' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2322344A'/%3E%3Cstop offset='1' stop-color='%230B1523'/%3E%3C/linearGradient%3E%3ClinearGradient id='ch360me-h' gradientUnits='userSpaceOnUse' x1='92' y1='62' x2='170' y2='134'%3E%3Cstop offset='0' stop-color='%230BBEFF'/%3E%3Cstop offset='1' stop-color='%230366F4'/%3E%3C/linearGradient%3E%3ClinearGradient id='ch360me-n' gradientUnits='userSpaceOnUse' x1='0' y1='126' x2='0' y2='193'%3E%3Cstop offset='0' stop-color='%230A8DFF'/%3E%3Cstop offset='1' stop-color='%230369F5'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='200' height='200' rx='38' fill='url(%23ch360me-bg)'/%3E%3Crect x='2.5' y='2.5' width='195' height='195' rx='35.5' fill='none' stroke='%23FFFFFF' stroke-opacity='.24' stroke-width='5'/%3E%3Cg transform='translate(0 136) skewX(-13) translate(0 -136)'%3E%3Cpath fill='%23FFFFFF' d='M80 59H50A34 34 0 0 0 16 93V102A34 34 0 0 0 50 136H80V114H49A10 10 0 0 1 39 104V91A10 10 0 0 1 49 81H80Z'/%3E%3Cpath fill='url(%23ch360me-h)' d='M84 59H107V89H136V59H159V136H136V106H107V136H84Z'/%3E%3C/g%3E%3Cg transform='translate(234 47.5) scale(1.56716) translate(-322 -126)'%3E%3Cpath fill='%23FFFFFF' d='M381 126H346A24 24 0 0 0 322 150V169A24 24 0 0 0 346 193H381V180H346A9 9 0 0 1 337 171V148A9 9 0 0 1 346 139H381ZM392 126H407V154H442V126H457V193H442V165H407V193H392Z'/%3E%3Cpath fill='url(%23ch360me-n)' fill-rule='evenodd' d='M473 126H509A18 18 0 0 1 527 144V151L521.5 159.5L527 168V175A18 18 0 0 1 509 193H473V180H507A5 5 0 0 0 512 175V170A5 5 0 0 0 507 165H490V154H507A5 5 0 0 0 512 149V144A5 5 0 0 0 507 139H473ZM589 126H557A22 22 0 0 0 535 148V171A22 22 0 0 0 557 193H572A20 20 0 0 0 592 173V172A20 20 0 0 0 572 152H550V148A9 9 0 0 1 559 139H589ZM556 165H571A6 6 0 0 1 577 171V174A6 6 0 0 1 571 180H556A6 6 0 0 1 550 174V171A6 6 0 0 1 556 165ZM623 126H640A24 24 0 0 1 664 150V169A24 24 0 0 1 640 193H623A24 24 0 0 1 599 169V150A24 24 0 0 1 623 126ZM623 139A9 9 0 0 0 614 148V171A9 9 0 0 0 623 180H640A9 9 0 0 0 649 171V148A9 9 0 0 0 640 139Z'/%3E%3C/g%3E%3C/svg%3E");
     pointer-events: none;
 }
 
@@ -279,18 +275,13 @@ footer {
     padding: 0 4px 14px;
 }
 
-.ac-side-brand .ac-mark {
-    width: 30px;
-    height: 30px;
+/* Logo CH360 (fundo escuro): proporção 3,85 : 1 */
+.ac-side-brand .ac-side-logo {
+    display: block;
+    height: 34px;
+    width: auto;
+    max-width: 100%;
     flex: none;
-}
-
-.ac-side-brand .ac-brand-name {
-    font-family: var(--ac-font-display);
-    font-weight: 700;
-    font-size: 16px;
-    letter-spacing: 1.3px;
-    color: #FFFFFF !important;
 }
 
 .ac-side-user {
@@ -399,7 +390,7 @@ footer {
 }
 
 [data-testid="stSidebar"] .st-key-sb_new button:hover {
-    background: #CC6614 !important;
+    background: var(--ac-accent-hover) !important;
 }
 
 [data-testid="stSidebar"] .st-key-sb_logout button p {
@@ -515,33 +506,27 @@ footer {
     transition: width .3s ease;
 }
 
-/* Marca completa (login) */
+/* Marca completa (login): logo CH360 vetorial, proporção 2,95 : 1 */
 .ac-brand {
     display: flex;
-    align-items: center;
-    gap: 12px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
     margin: 8px 0 18px;
 }
 
-.ac-brand .ac-mark {
-    width: 44px;
-    height: 44px;
+.ac-brand .ac-brand-logo {
+    display: block;
+    width: 250px;
+    max-width: 100%;
+    height: auto;
+    aspect-ratio: 596 / 202;
     flex: none;
-}
-
-.ac-brand .ac-brand-name {
-    font-family: var(--ac-font-display);
-    font-weight: 700;
-    font-size: 24px;
-    letter-spacing: 1.6px;
-    color: var(--ac-ink) !important;
-    line-height: 1.1;
 }
 
 .ac-brand .ac-brand-sub {
     color: var(--ac-muted) !important;
     font-size: 14px;
-    margin-top: 2px;
 }
 
 /* Título de bloco dentro das etapas (pneu, foto, avaria...) */
@@ -796,7 +781,7 @@ div[data-baseweb="menu"] li:hover {
 /* Opção selecionada: fundo suave + texto escuro (contraste legível) */
 div[data-baseweb="popover"] li[aria-selected="true"],
 div[data-baseweb="menu"] li[aria-selected="true"] {
-    background: #FDF1E7 !important;
+    background: #EAF2FE !important;
     box-shadow: inset 3px 0 0 var(--ac-accent);
 }
 
@@ -1039,7 +1024,7 @@ div[class*="st-key-damage_mark_"] button[kind="primary"] p::before { background:
 
 [data-testid="stMain"] [data-testid="stFileUploaderDropzone"] button:hover,
 [data-testid="stMain"] [data-testid="stFileUploaderDropzone"] button:active {
-    background: #FDF6F0 !important;
+    background: #F2F7FE !important;
     border-color: var(--ac-accent) !important;
 }
 
@@ -1299,8 +1284,8 @@ div[class*="st-key-avaria_up"] [data-testid="stFileUploaderDropzone"] button::af
     }
 
     [data-testid="stHeader"]::before {
-        font-size: 15.5px;
-        letter-spacing: 1.1px;
+        width: 116px;
+        height: 30px;
     }
 
     .ac-hero {
@@ -1450,10 +1435,8 @@ div[class*="st-key-avaria_up"] [data-testid="stFileUploaderDropzone"] button::af
 @media (max-width: 380px) {
 
     [data-testid="stHeader"]::before {
-        font-size: 14px;
-        letter-spacing: .8px;
-        padding-left: 30px;
-        background-size: 22px 22px;
+        width: 108px;
+        height: 28px;
     }
 
     .ac-title {

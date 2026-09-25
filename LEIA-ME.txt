@@ -1,5 +1,15 @@
-LAUDO DE VISTORIA — PLATAFORMA MULTIEMPRESA (SaaS)
-====================================================
+CH360 • VISTORIA VEICULAR — PLATAFORMA MULTIEMPRESA (SaaS)
+===========================================================
+
+MARCA (assets/)
+- ch360_icone.svg / ch360_icone_escuro.svg ... ícone "CH" (o "escuro" tem borda para fundos escuros)
+- ch360_logo.svg / ch360_logo_escuro.svg ..... logo completa (ícone + CH360 + VISTORIA VEICULAR)
+- ch360_marca_escuro.svg ...................... ícone + CH360 (barra superior e menu lateral)
+- ch360_icone_512.png / _192.png / favicon_32.png, ch360_logo_1200.png (PDF) ... gerados dos SVGs
+- logo_ch360_original.jpg ..................... arte original, só como referência
+Os SVGs são vetoriais com o texto em curvas (não dependem de fonte instalada).
+A barra superior usa ch360_marca_escuro.svg embutido no style.css (data URI): se o
+SVG mudar, atualize também o url("data:image/svg+xml,...") do stHeader::before.
 
 PRIMEIRO USO (depois da atualização multiempresa)
 1. Crie o Super Admin (dono da plataforma), na pasta do projeto:
@@ -76,7 +86,7 @@ ou migre saas/db.py para um banco externo (PostgreSQL).
 
 ----------------------------------------------------------------------------
 
-AUTO CHECK / LAUDO DE VISTORIA — AVARIAS ATUALIZADAS
+CH360 (antigo AUTO CHECK / LAUDO DE VISTORIA) — AVARIAS ATUALIZADAS
 
 Esta versão substitui os desenhos genéricos da etapa 06 • Avarias pelos desenhos técnicos completos enviados.
 

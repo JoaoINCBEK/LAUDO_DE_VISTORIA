@@ -23,7 +23,7 @@ from templates import brand_html, hero_html, section_html
 
 COR_STATUS = {"Concluída": "#15803D", "Em andamento": "#2F6FB0", "Pendente": "#C98A0B", "Cancelada": "#8A94A0"}
 COR_MARCA = "#1B2A38"
-COR_DESTAQUE = "#E3751C"
+COR_DESTAQUE = "#0A6CF0"      # azul CH360 (mesmo --ac-accent do style.css)
 
 
 @dataclass
@@ -904,7 +904,7 @@ def pg_minha_conta(ctx):
 
 def tela_troca_obrigatoria(ator, ao_concluir):
     with st.container(key="ac_login"):
-        st.markdown(brand_html("Inspeção veicular digital"), unsafe_allow_html=True)
+        st.markdown(brand_html(), unsafe_allow_html=True)
         st.markdown(section_html("Crie sua senha pessoal",
                                  "Por segurança, a senha provisória precisa ser trocada antes de continuar."),
                     unsafe_allow_html=True)

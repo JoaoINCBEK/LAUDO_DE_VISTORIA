@@ -1,4 +1,4 @@
-"""Camada multiempresa (SaaS) do LAUDO DE VISTORIA.
+"""Camada multiempresa (SaaS) do CH360 (Vistoria Veicular).
 
 Módulos:
 - db         : conexão SQLite, esquema e utilidades de data/hora

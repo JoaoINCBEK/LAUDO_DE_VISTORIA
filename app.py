@@ -15,7 +15,7 @@ from desenho import render as desenho_render
 import sessao_navegador
 
 import unicodedata
-APP = "LAUDO DE VISTORIA"
+APP = "CH360"
 DATA_DIR = Path(os.environ.get("LAUDO_DATA_DIR", "autocheck_data"))
 DATA_DIR.mkdir(exist_ok=True)
 PDF_DIR = DATA_DIR / "pdfs"
@@ -438,32 +438,46 @@ def clear_login_session():
             pass
     st.query_params.clear()
 
-st.set_page_config(page_title="LAUDO DE VISTORIA",page_icon="🚗",layout="wide",initial_sidebar_state="collapsed")
+st.set_page_config(page_title="CH360 • Vistoria Veicular",
+                   page_icon=Image.open(Path(__file__).resolve().parent / "assets" / "ch360_icone_512.png"),
+                   layout="wide",initial_sidebar_state="collapsed")
 from templates import page_styles, hero_html, card_html, card_open, card_close, brand_html, sidebar_brand_html, section_html
 st.markdown(page_styles(), unsafe_allow_html=True)
 
-@st.cache_resource(show_spinner=False)
-def preparar_banco():
-    """Uma vez por processo: escolhe o banco ([database] url nos Secrets = PostgreSQL permanente;
-    sem isso, SQLite local), cria as tabelas, importa os JSON antigos (sem apagá-los) e,
-    se houver [superadmin] nos Secrets, garante que o Super Admin exista."""
-    cfg, banco = {}, {}
+def ler_secrets_banco():
+    """([database], [superadmin]) dos Secrets. Sem arquivo: ({}, {}) e nenhum aviso na tela."""
     try:
-        if st.secrets.load_if_toml_exists():   # sem arquivo: não mostra aviso
+        if st.secrets.load_if_toml_exists():
             banco = dict(st.secrets["database"]) if "database" in st.secrets else {}
             cfg = dict(st.secrets["superadmin"]) if "superadmin" in st.secrets else {}
+            return banco, cfg
     except Exception:
-        cfg, banco = {}, {}
+        pass
+    return {}, {}
+
+@st.cache_resource(show_spinner=False)
+def preparar_banco(banco_alvo, versao_esquema):
+    """Uma vez por processo e por banco/versão do esquema: cria as tabelas, importa os JSON
+    antigos (sem apagá-los) e, se houver [superadmin] nos Secrets, garante que o Super Admin exista.
+    Os argumentos só formam a chave do cache: se o banco em uso ou o esquema mudar, roda de novo."""
+    sdb.inicializar()
+    resumo = migracao.importar_legado()
+    _banco, cfg = ler_secrets_banco()
+    if cfg.get("login") and cfg.get("senha"):
+        migracao.garantir_super_admin(cfg["login"], cfg.get("nome", ""), cfg["senha"])
+    return resumo
+
+def escolher_banco():
+    """Em TODA execução: [database] url nos Secrets = PostgreSQL permanente; sem isso, SQLite local.
+    Fica fora do cache porque, ao recarregar um módulo alterado (ex.: saas/db.py com o app aberto),
+    o Streamlit zera a configuração do banco; antes, o app caía no SQLite local sem perceber."""
+    banco, _cfg = ler_secrets_banco()
     # LAUDO_TESTE: os testes automáticos nunca usam o banco real configurado nos Secrets.
     if (str(banco.get("url", "")).startswith("postgres") and not sdb.usando_postgres()
             and not os.environ.get("LAUDO_TESTE")):
         sdb.configurar_postgres(banco["url"])
-    sdb.inicializar()
-    resumo = migracao.importar_legado()
-    if cfg.get("login") and cfg.get("senha"):
-        migracao.garantir_super_admin(cfg["login"], cfg.get("nome", ""), cfg["senha"])
-    return resumo
-preparar_banco()
+    return preparar_banco(sdb.descricao_banco(), sdb.SCHEMA_VERSION)
+escolher_banco()
 ler_token_do_navegador()
 
 if "user" not in st.session_state:
@@ -591,7 +605,7 @@ def client_helpers(scroll_top=False):
 
 def login_screen():
     with st.container(key="ac_login"):
-        st.markdown(brand_html("Inspeção veicular digital"), unsafe_allow_html=True)
+        st.markdown(brand_html(), unsafe_allow_html=True)
         st.markdown(card_html("Acessar o sistema", "Entre com seu usuário cadastrado."), unsafe_allow_html=True)
         if st.session_state.pop("_sessao_encerrada", False):
             st.info("Sua sessão foi encerrada. Entre novamente.")

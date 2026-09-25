@@ -16,8 +16,10 @@ Regras de layout:
 import io
 import base64
 from html import escape
+from pathlib import Path
 
 from PIL import Image
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -45,6 +47,10 @@ SIGNATURE_MAX_W = 200
 SIGNATURE_MAX_H = 66
 SIGN_GAP = 16                           # espaço entre Proprietário e Empresa/Emitente
 FIT_SAFETY = 8                          # folga (pt) ao calcular o que cabe na página
+
+LOGO_FILE = Path(__file__).resolve().parent / "assets" / "ch360_logo_1200.png"
+LOGO_H = 30                             # altura da logo CH360 no cabeçalho da 1ª página (pt)
+_LOGO = None                            # ImageReader em cache (False = arquivo indisponível)
 
 
 # ----------------------------------------------------------------------------
@@ -306,12 +312,34 @@ def real_marks(av):
     return out
 
 
-def _footer(numero):
+def _logo():
+    """Logo CH360 (PNG 1200 px, fundo transparente). None se o arquivo não existir."""
+    global _LOGO
+    if _LOGO is None:
+        try:
+            with Image.open(LOGO_FILE) as im:
+                im = im.convert("RGBA")
+                # 600 px para ~88 pt de largura = ~490 dpi: nítida na impressão, PDF mais leve
+                im.thumbnail((600, 600), Image.LANCZOS)
+                _LOGO = ImageReader(im)
+        except Exception:
+            _LOGO = False
+    return _LOGO or None
+
+
+def _footer(numero, logo=False):
     def draw(canvas, doc):
         canvas.saveState()
+        img = _logo() if logo else None
+        if img:  # desenhada na margem superior direita: não ocupa espaço no fluxo (paginação igual)
+            w, h = img.getSize()
+            lh = LOGO_H
+            lw = lh * w / float(h)
+            canvas.drawImage(img, A4[0] - MARGIN_X - lw, A4[1] - MARGIN_Y - FRAME_PAD - lh + 2,
+                             width=lw, height=lh, mask="auto")
         canvas.setFont("Helvetica", 7)
         canvas.setFillColor(colors.HexColor("#64748b"))
-        canvas.drawString(MARGIN_X, 18, f"LAUDO DE VISTORIA - {numero}")
+        canvas.drawString(MARGIN_X, 18, f"CH360 • Laudo de Vistoria - {numero}")
         canvas.drawRightString(A4[0] - MARGIN_X, 18, f"Página {doc.page}")
         canvas.restoreState()
     return draw
@@ -336,7 +364,7 @@ def build_pdf(c, labels=None, warnings=None):
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=MARGIN_X, leftMargin=MARGIN_X,
                             topMargin=MARGIN_Y, bottomMargin=MARGIN_Y + 6,
-                            title=f"Laudo de Vistoria {numero}", author="LAUDO DE VISTORIA")
+                            title=f"Laudo de Vistoria {numero}", author="CH360")
     story = []
     v = c.get("veiculo", {})
     f = c.get("combustivel", {})
@@ -502,6 +530,5 @@ def build_pdf(c, labels=None, warnings=None):
     if pending:  # nenhuma foto: só uma linha, sem espaço vazio
         story.append(KeepTogether(pending + [Paragraph("Nenhuma foto registrada.", ss["Sm"])]))
 
-    footer = _footer(numero)
-    doc.build(story, onFirstPage=footer, onLaterPages=footer)
+    doc.build(story, onFirstPage=_footer(numero, logo=True), onLaterPages=_footer(numero))
     return buf.getvalue()
