@@ -1265,8 +1265,9 @@ div[class*="st-key-avaria_up"] [data-testid="stFileUploaderDropzone"] button::af
     box-shadow: 0 -8px 16px -12px rgba(16, 24, 32, .18);
 }
 
-/* Telas com desenho/assinatura: a barra não pode ficar sobre a área de desenho */
-.stApp:has(iframe[title*="drawable_canvas"]) [data-testid="stVerticalBlockBorderWrapper"]:has(> div > .st-key-ac_nav) {
+/* Telas com desenho/assinatura: a barra não pode ficar sobre a área de desenho
+   (componente desenho/ -> iframe com título "...laudo_canvas") */
+.stApp:has(iframe[title*="laudo_canvas"]) [data-testid="stVerticalBlockBorderWrapper"]:has(> div > .st-key-ac_nav) {
     position: relative !important;
     box-shadow: none;
 }

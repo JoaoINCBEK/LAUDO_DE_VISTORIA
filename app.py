@@ -4,13 +4,14 @@ from pathlib import Path
 from datetime import datetime
 import json, hashlib, base64, io, re, secrets, time
 from PIL import Image, ImageDraw, ImageOps
-import numpy as np
-from streamlit_drawable_canvas import st_canvas
 from streamlit.errors import StreamlitAPIException
 import pdf_report, placa_api
 import os
 from saas import db as sdb, migracao, rbac, servicos as S
 import paineis
+import assinatura
+import desenho
+from desenho import render as desenho_render
 
 import unicodedata
 APP = "LAUDO DE VISTORIA"
@@ -55,14 +56,6 @@ _current_year = datetime.now().year
 VEHICLE_YEARS = [str(y) for y in range(_current_year + 1, 1979, -1)]
 
 
-
-def is_mobile_client():
-    """True quando o navegador é de celular (usado para caber os canvas na tela)."""
-    try:
-        ua = st.context.headers.get("User-Agent", "") or ""
-    except Exception:
-        return False
-    return bool(re.search(r"Android|iPhone|iPod|Mobile", ua, re.I))
 
 def pick_or_type(label, options, current, key, allow_blank=False):
     """Selectbox com lista pré-definida + opção 'Outro' com campo livre.
@@ -174,6 +167,12 @@ def b64_pil(img):
     out=io.BytesIO(); img.convert("RGB").save(out,"PNG")
     return base64.b64encode(out.getvalue()).decode()
 
+def b64_jpeg(img, quality=85):
+    """Desenho das avarias: JPEG fica ~5x menor que PNG (900 px ~ 115 KB, o mesmo tamanho
+    do PNG antigo de 400x460) e o PDF usa os bytes direto."""
+    out=io.BytesIO(); img.convert("RGB").save(out,"JPEG",quality=quality,optimize=True)
+    return base64.b64encode(out.getvalue()).decode()
+
 def pil_b64(s):
     return Image.open(io.BytesIO(base64.b64decode(s))).convert("RGB")
 
@@ -212,10 +211,15 @@ DIAGRAM_FILES = {
 
 DIAGRAM_DIR = Path(__file__).resolve().parent / "diagramas"
 
-def vehicle_diagram(tipo, size=(760,460)):
-    """Carrega o desenho real enviado pelo usuário, preservando linhas pretas/cinzas.
-    O fundo é sempre branco para evitar o retângulo preto no PDF/canvas.
-    """
+# Desenho das avarias. Antes: caixa fixa de 400x460 com o desenho (que é horizontal)
+# centralizado, sobrando branco em cima e embaixo. Agora a área tem a MESMA proporção do
+# desenho, então ela ocupa a largura toda (e na horizontal fica bem maior).
+DIAGRAM_EXPORT_W = 900     # largura da imagem salva em av["imagem"] (PDF: até 380 pt -> ~170 dpi)
+DIAGRAM_SCREEN_W = 1400    # largura enviada ao navegador (nítida em telas dpr 2-3)
+
+@st.cache_data(show_spinner=False, max_entries=64)
+def vehicle_diagram_png(tipo, largura):
+    """Desenho real do veículo na proporção original, fundo branco, como PNG."""
     filename = DIAGRAM_FILES.get(tipo, DIAGRAM_FILES["sedan"])
     path = DIAGRAM_DIR / filename
     if path.exists():
@@ -223,89 +227,30 @@ def vehicle_diagram(tipo, size=(760,460)):
         bg = Image.new("RGBA", src.size, "white")
         src = Image.alpha_composite(bg, src).convert("RGB")
     else:
-        src = Image.new("RGB", size, "white")
+        src = Image.new("RGB", (760, 460), "white")
         d = ImageDraw.Draw(src)
         d.text((20,20), "Desenho não encontrado", fill="#444444")
-    src.thumbnail(size, Image.Resampling.LANCZOS)
-    canvas = Image.new("RGB", size, "white")
-    x=(size[0]-src.width)//2; y=(size[1]-src.height)//2
-    canvas.paste(src,(x,y))
-    return canvas
+    altura = max(1, round(largura * src.height / src.width))
+    out = io.BytesIO()
+    src.resize((largura, altura), Image.Resampling.LANCZOS).save(out, "PNG", optimize=True)
+    return out.getvalue(), src.width / src.height
 
-def compose_canvas_image(canvas, background):
-    """Reconstrói a imagem final usando o desenho original + somente as marcações coloridas.
-    O st_canvas pode devolver a área inteira com fundo preto/opaque em image_data;
-    por isso não usamos essa camada inteira como overlay.
-    """
-    arr = canvas.image_data.astype("uint8")
-    h, w = arr.shape[:2]
-    bg = background.convert("RGBA").resize((w, h), Image.Resampling.LANCZOS)
+def vehicle_diagram(tipo, largura=DIAGRAM_EXPORT_W):
+    return Image.open(io.BytesIO(vehicle_diagram_png(tipo, largura)[0])).convert("RGB")
 
-    # Extrai somente os traços coloridos: X vermelho e O azul.
-    rgb = arr[:, :, :3].astype("int16")
-    r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
-    red = (r > 120) & (r > g + 45) & (r > b + 45)
-    blue = (b > 100) & (b > r + 35) & (b > g + 20)
-    mark = red | blue
+@st.cache_data(show_spinner=False, max_entries=64)
+def diagram_screen_url(tipo):
+    """(data URL em JPEG leve, proporção) do desenho-base para a área de desenho no navegador."""
+    png, prop = vehicle_diagram_png(tipo, DIAGRAM_SCREEN_W)
+    out = io.BytesIO()
+    Image.open(io.BytesIO(png)).convert("RGB").save(out, "JPEG", quality=88, optimize=True)
+    return "data:image/jpeg;base64," + base64.b64encode(out.getvalue()).decode("ascii"), prop
 
-    oa = np.zeros((h, w, 4), dtype=np.uint8)
-    oa[:, :, :3] = arr[:, :, :3]
-    oa[:, :, 3] = np.where(mark, 255, 0).astype(np.uint8)
-    overlay = Image.fromarray(oa)
-    return Image.alpha_composite(bg, overlay).convert("RGB")
-
-def canvas_b64(canvas, background=None):
-    if canvas is None or canvas.image_data is None: return None
-    if background is not None:
-        return b64_pil(compose_canvas_image(canvas, background))
-    return b64_pil(Image.fromarray(canvas.image_data.astype("uint8")).convert("RGB"))
-
-def canvas_image_drawing(image):
-    """Coloca a imagem dentro do próprio Fabric.js, em vez de usar background_image.
-    Isso mantém desenho e imagem no mesmo sistema de coordenadas e evita o
-    deslocamento que pode ocorrer no background_image do drawable-canvas.
-    """
-    image = image.convert("RGB")
-    buf = io.BytesIO()
-    image.save(buf, format="PNG")
-    src = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
-    return {
-        "version": "4.4.0",
-        "objects": [{
-            "type": "image",
-            "originX": "left",
-            "originY": "top",
-            "left": 0,
-            "top": 0,
-            "width": image.width,
-            "height": image.height,
-            "fill": "rgb(0,0,0)",
-            "stroke": None,
-            "strokeWidth": 1,
-            "strokeDashArray": None,
-            "strokeLineCap": "butt",
-            "strokeLineJoin": "miter",
-            "strokeMiterLimit": 10,
-            "scaleX": 1,
-            "scaleY": 1,
-            "angle": 0,
-            "flipX": False,
-            "flipY": False,
-            "opacity": 1,
-            "shadow": None,
-            "visible": True,
-            "backgroundColor": "",
-            "fillRule": "nonzero",
-            "globalCompositeOperation": "source-over",
-            "selectable": False,
-            "evented": False,
-            "hasControls": False,
-            "hasBorders": False,
-            "src": src,
-            "filters": [],
-            "crossOrigin": ""
-        }]
-    }
+@st.cache_data(show_spinner=False, max_entries=32)
+def legacy_screen_url(b64):
+    """Desenho salvo por versões antigas (400x460 com traços embutidos): vira a base."""
+    im = pil_b64(b64)
+    return "data:image/png;base64," + b64, im.width / im.height
 
 def pdf_bytes(c, warnings=None):
     """Gera o PDF da vistoria (layout em pdf_report.py). `warnings` recebe avisos de
@@ -468,9 +413,8 @@ if st.session_state.user and not st.session_state.get("_restored_state", False):
 #    observado continuamente; (b) um iframe disparado pelo servidor na troca de etapa.
 # 2) SELECTS: no celular, o campo de busca do selectbox abria o teclado virtual, que cobria a
 #    lista de opções. Em telas de toque o campo vira somente leitura (inputmode=none).
-# 3) CANVAS (avarias e assinaturas): se o container for mais estreito que o canvas, a exibição
-#    é reduzida (transform: scale) para caber SEM cortar. A resolução interna não muda e o
-#    navegador converte o toque para as coordenadas do canvas.
+# (O antigo item 3, que reduzia o canvas com transform: scale, saiu: a área de desenho
+#  agora é o componente desenho/, que mede a tela e se redimensiona sozinho, sem escala dupla.)
 # O código é injetado no documento pai (não fica preso ao iframe, que o Streamlit recria).
 # ---------------------------------------------------------------------------
 CLIENT_JS = r"""
@@ -519,40 +463,6 @@ CLIENT_JS = r"""
   }
   function scan() { doc.querySelectorAll('[data-baseweb="select"] input').forEach(noKeyboard); }
 
-  /* ---------- 3) canvas cabe na tela ---------- */
-  function fitCanvases() {
-    doc.querySelectorAll('iframe').forEach(function (f) {
-      var src = f.getAttribute('src') || '';
-      if (src.indexOf('streamlit_drawable_canvas') < 0) return;
-      var wrap = f.parentElement, cd = null;
-      if (!wrap) return;
-      try { cd = f.contentDocument; } catch (e) { return; }
-      if (!cd) return;
-      var cc = cd.querySelector('.canvas-container') || cd.querySelector('canvas');
-      if (!cc || !cc.offsetWidth) return;
-      var W = cc.offsetWidth;
-      wrap.style.overflow = 'hidden'; wrap.style.minWidth = '0';
-      var avail = wrap.clientWidth;
-      var k = Math.min(1, avail / W);
-      if (k > 0.999) {
-        if (f.getAttribute('data-ac-fit')) {
-          ['width', 'max-width', 'transform', 'transform-origin'].forEach(function (p) { f.style.removeProperty(p); });
-          wrap.style.removeProperty('height');
-          f.removeAttribute('data-ac-fit');
-        }
-        return;
-      }
-      var sig = W + '|' + k.toFixed(3) + '|' + f.offsetHeight;
-      if (f.getAttribute('data-ac-fit') === sig) return;
-      f.style.setProperty('width', W + 'px', 'important');
-      f.style.setProperty('max-width', 'none', 'important');
-      f.style.setProperty('transform-origin', '0 0');
-      f.style.setProperty('transform', 'scale(' + k + ')');
-      wrap.style.height = Math.ceil(f.offsetHeight * k) + 'px';
-      f.setAttribute('data-ac-fit', sig);
-    });
-  }
-
   var pending = false;
   new MutationObserver(function () {
     if (pending) return; pending = true;
@@ -562,8 +472,8 @@ CLIENT_JS = r"""
     var t = e.target;
     if (t && t.matches && t.matches('[data-baseweb="select"] input')) noKeyboard(t);
   }, true);
-  win.setInterval(function () { scan(); checkView(); fitCanvases(); }, 350);
-  scan(); checkView(); fitCanvases();
+  win.setInterval(function () { scan(); checkView(); }, 350);
+  scan(); checkView();
 })();
 """
 
@@ -691,6 +601,7 @@ def contexto_paineis():
         tipos_veiculo={k: lbl for k, _ic, lbl in VEHICLE_DIAGRAMS},
         miniatura=thumb_bytes,
         rotulos_fotos=dict(PHOTO_SLOTS) | dict(KEY_DOC_ITEMS),
+        assinatura_cfg=get_assinatura_config(),
     )
 
 def sidebar():
@@ -762,6 +673,18 @@ def get_placa_config():
         # Só o tipo do erro: a mensagem do parser pode conter trechos do arquivo (cookie).
         err = f"Falha ao ler os Secrets ({type(exc).__name__}) — provável erro de sintaxe TOML"
     return placa_api.load_config(secret, secrets_error=err)
+
+def get_assinatura_config():
+    """Assinatura à distância: seção [assinatura] dos Secrets ou variáveis ASSINATURA_*.
+    Sem nada configurado: provedor "desativado" (o app funciona normalmente)."""
+    secret, err = {}, ""
+    try:
+        if st.secrets.load_if_toml_exists() and "assinatura" in st.secrets:
+            secret = dict(st.secrets["assinatura"])
+    except Exception as exc:
+        # Só o tipo do erro: a mensagem do parser pode conter trechos do arquivo.
+        err = f"Falha ao ler os Secrets ({type(exc).__name__})"
+    return assinatura.carregar_config(secret, os.environ, secrets_error=err)
 
 def plate_lookup_ui(v, placa_antes):
     """Consulta OPCIONAL pela placa. Só preenche campos vazios (ou preenchidos antes
@@ -1089,12 +1012,19 @@ def tires():
     nav(fragment=True)
 
 
-def reset_damage_canvas(av, view):
-    """Recomeça o desenho do veículo do zero (novo canvas com o desenho-base limpo)."""
-    ver_key = f"canvas_version_{view}"
+def _zerar_desenho_avarias(av):
+    """Volta ao desenho-base limpo (também descarta um desenho antigo migrado)."""
     av["imagem"] = None
     av["imagem_ok"] = False
     av["marcacoes"] = []
+    av["tracos"] = []
+    av.pop("imagem_legada", None)
+    av.pop("marcacoes_legadas", None)
+
+def reset_damage_canvas(av, view):
+    """Recomeça o desenho do veículo do zero (nova área com o desenho-base limpo)."""
+    ver_key = f"canvas_version_{view}"
+    _zerar_desenho_avarias(av)
     st.session_state[ver_key] = st.session_state.get(ver_key, 0) + 1
     save_current_state()
     st.rerun()
@@ -1109,8 +1039,8 @@ def damage():
         av["diagrama"] = st.session_state.damage_view
     view = st.session_state.damage_view
 
-    # Versão do canvas: só muda para recomeçar o desenho do zero (Limpar / trocar de veículo).
-    # Desfazer/refazer NÃO passa mais por aqui: é a barra nativa do canvas, igual à das assinaturas.
+    # Versão da área de desenho: só muda para recomeçar do zero (Limpar desenho / trocar de veículo).
+    # Desfazer, refazer e limpar os traços ficam na própria área (iguais aos das assinaturas).
     ver_key = f"canvas_version_{view}"
 
     with st.expander(f"Tipo de veículo: {next((lbl for k,_i,lbl in VEHICLE_DIAGRAMS if k==view), view)}", expanded=False):
@@ -1124,8 +1054,7 @@ def damage():
                                  type="primary" if view==key else "secondary"):
                         st.session_state.damage_view = key
                         av["diagrama"] = key
-                        av["imagem"] = None
-                        av["imagem_ok"] = False
+                        _zerar_desenho_avarias(av)
                         st.session_state[f"canvas_version_{key}"] = st.session_state.get(f"canvas_version_{key}", 0) + 1
                         save_current_state()
                         st.rerun()
@@ -1146,135 +1075,51 @@ def damage():
             st.rerun()
 
     if st.session_state.mark_mode=="x":
-        stroke_color, draw_mode = "#ef4444", "freedraw"
+        stroke_color = desenho_render.COR_ARRANHAO
         st.caption("Arranhão.")
     else:
-        stroke_color, draw_mode = "#2563eb", "freedraw"
+        stroke_color = desenho_render.COR_AMASSADO
         st.caption("Amassado.")
 
-    # Tamanho original do desenho (400x460). Em celular estreito o navegador só reduz a
-    # exibição para caber na tela (ver CLIENT_JS): a resolução interna do canvas não muda.
-    canvas_width = 400
-    canvas_height = 460
+    # Vistorias salvas pela versão antiga (imagem 400x460 com os traços embutidos) continuam
+    # abrindo: essa imagem vira a base e as ocorrências antigas são mantidas.
+    desenho_render.migrar_avarias(av)
+    if av.get("imagem_legada"):
+        base_url, proporcao = legacy_screen_url(av["imagem_legada"])
+        base_image = pil_b64(av["imagem_legada"])
+    else:
+        base_url, proporcao = diagram_screen_url(view)
+        base_image = vehicle_diagram(view)
+    if not av.get("imagem"):
+        # Como antes, o laudo sempre traz o desenho do veículo (mesmo sem nenhuma marcação).
+        av["imagem"] = b64_jpeg(desenho_render.render_avarias(base_image, av["tracos"]))
+        av["imagem_ok"] = True
 
-    # IMPORTANTE:
-    # O drawable-canvas redimensiona background_image internamente. Em alguns
-    # navegadores/Streamlit Cloud isso pode deixar a camada de desenho com
-    # coordenadas diferentes da imagem de fundo. Para evitar o deslocamento,
-    # a imagem faz parte do próprio Fabric.js como um objeto travado.
-    #
-    # A imagem-base é criada UMA vez por versão do canvas e depois só é lida.
-    # (Antes ela era refeita a cada rerun a partir da imagem já com os traços; assim um
-    # traço desfeito continuava "embutido" no fundo e reaparecia. Essa era uma das causas
-    # de o desfazer não funcionar.)
     canvas_version = st.session_state.get(ver_key, 0)
-    init_key = f"canvas_initial_{view}_{canvas_version}_{canvas_width}"
-    base_key = init_key + "_base"
-    if init_key not in st.session_state:
-        base = vehicle_diagram(view, size=(canvas_width, canvas_height))
-        if av.get("imagem") and av.get("imagem_ok"):
-            try:   # reabrindo a etapa: parte do desenho já salvo
-                base = pil_b64(av["imagem"]).resize((canvas_width, canvas_height), Image.Resampling.LANCZOS)
-            except Exception:
-                pass
-        elif av.get("imagem"):
-            av["imagem"] = None
-        st.session_state[base_key] = base
-        st.session_state[init_key] = canvas_image_drawing(base)
-    base_image = st.session_state[base_key]
-    initial_drawing = st.session_state[init_key]
-
-    can = st_canvas(
-        fill_color="rgba(0,0,0,0)",
-        stroke_width=4,
-        stroke_color=stroke_color,
-        background_color="#ffffff",
-        background_image=None,
-        height=canvas_height,
-        width=canvas_width,
-        drawing_mode=draw_mode,
-        initial_drawing=initial_drawing,
-        key=f"canvas_{view}_{canvas_version}",
-        display_toolbar=True,   # desfazer / refazer / lixeira nativos: o MESMO recurso das assinaturas
+    novos = desenho.area_desenho(
+        modo="avarias", versao=f"{view}_{canvas_version}", key=f"canvas_{view}_{canvas_version}",
+        tracos=av["tracos"], imagem=base_url, proporcao=proporcao, cor=stroke_color, espessura=0.01,
     )
+    if novos is not None and novos != av["tracos"]:
+        av["tracos"] = novos
+        # Imagem final gerada no servidor: desenho-base + traços (mesmo resultado em qualquer tela).
+        av["imagem"] = b64_jpeg(desenho_render.render_avarias(base_image, novos))
+        av["imagem_ok"] = True
+        # Uma ocorrência por traço, pela cor (vermelho = Arranhão, azul = Amassado) + as antigas.
+        av["marcacoes"] = list(av.get("marcacoes_legadas") or []) + desenho_render.marcacoes(novos)
 
-    # A lixeira nativa faz canvas.clear(), o que também apagaria o desenho-base do veículo
-    # (ele é um objeto dentro do canvas). Se isso acontecer, recomeçamos com um canvas limpo.
-    if isinstance(can.json_data, dict):
-        tem_base = any(o.get("type") == "image" for o in can.json_data.get("objects", []))
-        seen_key = f"canvas_base_seen_{view}_{canvas_version}"
-        if tem_base:
-            st.session_state[seen_key] = True
-        elif st.session_state.get(seen_key):
-            reset_damage_canvas(av, view)
+        # Auditoria: registra uma vez por vistoria (não a cada traço).
+        _aud_key = f"_audit_desenho_{c.get('_vistoria_id')}"
+        if av.get("marcacoes") and not st.session_state.get(_aud_key):
+            st.session_state[_aud_key] = True
+            audit("avaria_registrada", "marcou avarias no desenho do veículo")
 
-    if can.image_data is not None:
-        new_image = canvas_b64(can, base_image)
-        old_image = av.get("imagem")
+        # Não gravamos o rascunho em disco a cada traço (pesaria o rerun).
+        # A navegação e o botão Limpar continuam salvando o estado.
 
-        # Só registra um novo estado quando houve uma alteração real.
-        if new_image and new_image != old_image:
-            av["imagem"] = new_image
-            av["imagem_ok"] = True
-
-            # Sincroniza as ocorrências com os traços existentes no Fabric.js.
-            # A imagem final sozinha não informa quantas marcações foram feitas,
-            # por isso usamos os objetos do canvas para alimentar o resumo/PDF.
-            try:
-                drawing = can.json_data or {}
-                objects = drawing.get("objects", []) if isinstance(drawing, dict) else []
-                marcacoes = []
-                for obj in objects:
-                    if obj.get("type") != "path":
-                        continue
-                    stroke = str(obj.get("stroke", "")).lower()
-                    tipo = "Arranhão" if stroke in ("#ef4444", "rgb(239, 68, 68)") else "Amassado"
-                    marcacoes.append({
-                        "tipo": tipo,
-                        "severidade": "Marcada",
-                        "descricao": "Avaria indicada no desenho do veículo.",
-                    })
-                # Se o canvas atual não devolver os objetos (por exemplo,
-                # ao abrir uma inspeção já salva), conta as marcações pela
-                # presença dos traços vermelho/azul na imagem final.
-                if not marcacoes and av.get("imagem"):
-                    try:
-                        # int16 (não uint8): com uint8, "rr + 35" dá a volta e pixels BRANCOS passavam
-                        # no filtro de azul, criando avarias fantasmas ("Avaria — Marcada — ...").
-                        img = np.array(pil_b64(av["imagem"]).convert("RGB")).astype("int16")
-                        rr, gg, bb = img[:, :, 0], img[:, :, 1], img[:, :, 2]
-                        red = (rr > 140) & (rr > gg + 45) & (rr > bb + 45)
-                        blue = (bb > 120) & (bb > rr + 35) & (bb > gg + 20)
-                        mark = red | blue
-                        total = 1 if int(mark.sum()) >= 8 else 0
-
-                        av["marcacoes"] = [
-                            {
-                                "tipo": "Avaria",
-                                "severidade": "Marcada",
-                                "descricao": "Avaria indicada no desenho do veículo.",
-                            }
-                            for _ in range(total)
-                        ]
-                    except Exception:
-                        pass
-
-                av["marcacoes"] = marcacoes if marcacoes else av.get("marcacoes", [])
-            except Exception:
-                pass
-
-            # Auditoria: registra uma vez por vistoria (não a cada traço).
-            _aud_key = f"_audit_desenho_{c.get('_vistoria_id')}"
-            if av.get("marcacoes") and not st.session_state.get(_aud_key):
-                st.session_state[_aud_key] = True
-                audit("avaria_registrada", "marcou avarias no desenho do veículo")
-
-            # Não gravamos o rascunho em disco a cada traço. Isso adicionava
-            # uma operação pesada ao rerun e aumentava o atraso visual.
-            # A navegação e o botão Limpar continuam salvando o estado.
-
-    st.caption("Desfazer e refazer: use os ícones do próprio desenho (o mesmo recurso das assinaturas).")
-    if st.button("Limpar desenho", key=f"clear_{view}", use_container_width=True, disabled=not av.get("imagem")):
+    st.caption("Desfazer, Refazer e Limpar ficam logo abaixo do desenho. Gire o celular para ampliar a área.")
+    if st.button("Limpar desenho", key=f"clear_{view}", use_container_width=True,
+                 disabled=not (av.get("tracos") or av.get("imagem_legada"))):
         reset_damage_canvas(av, view)
 
     st.divider()
@@ -1446,24 +1291,28 @@ def photos():
 
     nav(fragment=True)
 
-def signature(title,key,stored):
+def signature(title,key,dono):
+    """Área de assinatura responsiva (largura real da tela; maior na horizontal).
+    Grava dono["assinatura"] (PNG base64, fundo branco, recortado na assinatura — o formato
+    usado pelo PDF) e dono["assinatura_tracos"] (para reabrir a etapa e continuar editando)."""
     st.write(f"**{title}**")
-    # Desktop: tamanho original (600x180). Celular: 400x220, área grande para o dedo; se a tela
-    # for mais estreita, o navegador reduz só a exibição (ver CLIENT_JS), sem cortar.
-    sig_w, sig_h = (400, 220) if is_mobile_client() else (600, 180)
-    can=st_canvas(background_color="#ffffff",stroke_width=2.5,stroke_color="#111827",height=sig_h,width=sig_w,drawing_mode="freedraw",key=key)
-    if can.image_data is not None:
-        arr=can.image_data[:,:,:3]
-        if (arr<245).any(): stored=canvas_b64(can)
-    if stored: st.image(pil_b64(stored),width=360)
-    return stored
+    tracos = dono.get("assinatura_tracos") or []
+    novos = desenho.area_desenho(modo="assinatura", versao=key, key=key, tracos=tracos,
+                                 cor=desenho_render.COR_ASSINATURA, espessura=0.012)
+    if novos is not None and novos != tracos:
+        dono["assinatura_tracos"] = novos
+        img = desenho_render.render_assinatura(novos)
+        dono["assinatura"] = b64_pil(img) if img is not None else None
+    if dono.get("assinatura"):
+        st.image(pil_b64(dono["assinatura"]),width=360)
+    return dono.get("assinatura")
 
 @st.fragment
 def owner():
     p=st.session_state.inspection["proprietario"]; topbar("09 • Proprietário","Nome, CPF, telefone e assinatura.")
     
     _antes = p["assinatura"]
-    a,b=st.columns(2); p["nome"]=a.text_input("Nome completo",p["nome"]); p["cpf"]=b.text_input("CPF do proprietário",p.get("cpf","")); p["telefone"]=st.text_input("Telefone de contato",p["telefone"]); p["assinatura"]=signature("Assinatura do proprietário / responsável","sig_owner",p["assinatura"])
+    a,b=st.columns(2); p["nome"]=a.text_input("Nome completo",p["nome"]); p["cpf"]=b.text_input("CPF do proprietário",p.get("cpf","")); p["telefone"]=st.text_input("Telefone de contato",p["telefone"]); p["assinatura"]=signature("Assinatura do proprietário / responsável","sig_owner",p)
     _aud_key = f"_audit_sig_owner_{st.session_state.inspection.get('_vistoria_id')}"
     if p["assinatura"] and p["assinatura"] != _antes and not st.session_state.get(_aud_key):
         st.session_state[_aud_key] = True
@@ -1492,7 +1341,7 @@ def issuer():
     a,b=st.columns(2); e["empresa"]=a.text_input("Empresa / Emitente",e["empresa"]); e["documento"]=b.text_input("CNPJ / Documento",e["documento"])
     a,b=st.columns(2); e["telefone"]=a.text_input("Telefone",e["telefone"]); e["email"]=b.text_input("E-mail",e["email"])
     _antes = e["assinatura"]
-    e["endereco"]=st.text_input("Endereço",e["endereco"]); e["responsavel"]=st.text_input("Nome do responsável",e["responsavel"]); e["assinatura"]=signature("Assinatura da empresa / emitente","sig_issuer",e["assinatura"])
+    e["endereco"]=st.text_input("Endereço",e["endereco"]); e["responsavel"]=st.text_input("Nome do responsável",e["responsavel"]); e["assinatura"]=signature("Assinatura da empresa / emitente","sig_issuer",e)
     _aud_key = f"_audit_sig_issuer_{st.session_state.inspection.get('_vistoria_id')}"
     if e["assinatura"] and e["assinatura"] != _antes and not st.session_state.get(_aud_key):
         st.session_state[_aud_key] = True
@@ -1546,6 +1395,13 @@ def review():
             st.session_state.pdf_avisos=pdf_avisos
             save_current_state()
             st.success("Inspeção finalizada e PDF arquivado no sistema.")
+            # Laudo substituído: solicitações de assinatura ainda pendentes do laudo antigo são
+            # canceladas no provedor (as que não puderem aparecem como "versão anterior").
+            try:
+                S.cancelar_assinaturas_substituidas(st.session_state.user, c["_vistoria_id"],
+                                                    assinatura.criar_provedor(get_assinatura_config()))
+            except (rbac.AcessoNegado, S.ErroNegocio):
+                pass
     # O PDF só é oferecido se pertencer a ESTA vistoria e refletir os dados atuais
     # (antes, o botão podia entregar o PDF de outra vistoria ou de antes de novas fotos).
     pdf_atual = (st.session_state.get("pdf") and st.session_state.get("pdf_numero")==c["numero"])
@@ -1559,6 +1415,10 @@ def review():
         if rbac.pode(st.session_state.user, "laudos.enviar"):
             paineis.links_envio(c["numero"], f'{v.get("marca","")} {v.get("modelo","")}'.strip(), v.get("placa",""),
                                 c["proprietario"].get("telefone",""))
+    # Assinatura eletrônica à distância: envia o MESMO PDF já arquivado (só com o PDF atual).
+    if c.get("_vistoria_id"):
+        paineis.painel_assinaturas(contexto_paineis(), c["_vistoria_id"], c["numero"], c.get("proprietario") or {},
+                                   permitir_envio=bool(pdf_atual), chave="rev")
     nav(fragment=True)
 
 # ---------------------------------------------------------------------------

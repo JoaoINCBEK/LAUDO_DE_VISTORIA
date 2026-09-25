@@ -903,7 +903,10 @@ def apagar_vistorias_empresa(ator):
     emp = _escopo(ator)
     with db.conectar() as con:
         arquivos = [r["arquivo_pdf"] for r in con.execute("SELECT arquivo_pdf FROM laudos WHERE empresa_id = ?", (emp,))]
+        arquivos += [r["arquivo_assinado"] for r in con.execute(
+            "SELECT arquivo_assinado FROM assinaturas_remotas WHERE empresa_id = ? AND arquivo_assinado <> ''", (emp,))]
         n = con.execute("SELECT COUNT(*) FROM vistorias WHERE empresa_id = ?", (emp,)).fetchone()[0]
+        con.execute("DELETE FROM assinaturas_remotas WHERE empresa_id = ?", (emp,))
         con.execute("DELETE FROM laudos WHERE empresa_id = ?", (emp,))
         con.execute("UPDATE logs SET vistoria_id = NULL WHERE empresa_id = ?", (emp,))
         con.execute("DELETE FROM vistorias WHERE empresa_id = ?", (emp,))
@@ -984,6 +987,248 @@ def regenerar_laudo(ator, laudo_id, gerar_pdf):
         caminho_pdf(l["arquivo_pdf"]).write_bytes(gerar_pdf(json.loads(v["dados"] or "{}")))
         registrar(ator, "laudo_regenerado", f"Laudo {l['numero']} gerado novamente", vistoria_id=l["vistoria_id"],
                   empresa_id=l["empresa_id"], con=con)
+
+
+# ---------------------------------------------------------------------------
+# Assinatura eletrônica à distância
+# O provedor (assinatura/) só fala com a API externa; aqui ficam permissão, empresa,
+# banco e auditoria. As chamadas externas acontecem FORA das transações do banco.
+# Sem webhook (o Streamlit não recebe): o status é consultado sob demanda, com cache.
+# ---------------------------------------------------------------------------
+STATUS_ASSINATURA = {
+    "rascunho": "Aguardando assinatura", "aguardando": "Aguardando assinatura", "assinado": "Documento assinado",
+    "recusado": "Recusado", "cancelado": "Cancelado", "expirado": "Expirado", "erro": "Erro ao enviar",
+}
+CACHE_STATUS_S = 45        # não consulta o provedor de novo antes disso (salvo "Atualizar status")
+_RE_EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+
+
+def _validar_signatario(dados, canais):
+    from assinatura import CANAIS, Signatario
+    nome = re.sub(r"\s+", " ", str(dados.get("nome") or "")).strip()
+    email = str(dados.get("email") or "").strip().lower()
+    tel = _so_digitos(dados.get("telefone"))
+    if len(tel) in (12, 13) and tel.startswith("55"):
+        tel = tel[2:]
+    cpf = _so_digitos(dados.get("cpf"))
+    canal = str(dados.get("canal") or "email")
+    if len(nome.split(" ")) < 2:
+        raise ErroNegocio("Informe o nome completo do signatário (nome e sobrenome).")
+    if email and not _RE_EMAIL.fullmatch(email):
+        raise ErroNegocio("E-mail do signatário inválido.")
+    if tel and len(tel) not in (10, 11):
+        raise ErroNegocio("Telefone do signatário inválido: use DDD + número (10 ou 11 dígitos).")
+    if canal not in canais:
+        raise ErroNegocio("Forma de envio não disponível neste provedor.")
+    if canal == "email" and not email:
+        raise ErroNegocio("Informe o e-mail do signatário para enviar por e-mail.")
+    if canal in ("whatsapp", "sms") and not tel:
+        raise ErroNegocio(f"Informe o celular do signatário para enviar por {CANAIS[canal]}.")
+    return Signatario(nome=nome, email=email, telefone=tel, cpf=cpf if len(cpf) == 11 else "", canal=canal)
+
+
+def _assinatura_no_escopo(con, ator, assinatura_id):
+    a = con.execute("SELECT * FROM assinaturas_remotas WHERE id = ?", (int(assinatura_id),)).fetchone()
+    if not a:
+        raise AcessoNegado("Solicitação de assinatura não encontrada.")
+    v = _vistoria_no_escopo(con, ator, a["vistoria_id"])      # mesma regra de empresa/autoria da vistoria
+    if v["empresa_id"] != a["empresa_id"]:
+        raise AcessoNegado("Solicitação de assinatura não encontrada.")
+    return a
+
+
+def _atualizar_assinatura(assinatura_id, **campos):
+    campos["updated_at"] = db.agora()
+    sets = ", ".join(f"{k} = ?" for k in campos)
+    with db.conectar() as con:
+        con.execute(f"UPDATE assinaturas_remotas SET {sets} WHERE id = ?", tuple(campos.values()) + (int(assinatura_id),))
+
+
+def _obter_assinatura(ator, assinatura_id):
+    with db.conectar() as con:
+        a = dict(_assinatura_no_escopo(con, ator, assinatura_id))
+        l = con.execute("SELECT status FROM laudos WHERE id = ?", (a["laudo_id"],)).fetchone() if a["laudo_id"] else None
+    a["versao_anterior"] = bool(l and l["status"] != "emitido")
+    return a
+
+
+def solicitar_assinatura(ator, vistoria_id, dados_signatario, provedor):
+    """Envia o PDF JÁ ARQUIVADO do laudo atual para assinatura. Devolve o id da solicitação.
+    Falha do provedor não levanta exceção: a solicitação fica com status 'erro' e a mensagem."""
+    from assinatura import ErroProvedor, mascarar_email, mascarar_telefone
+    exigir(ator, "laudos.enviar")
+    if ator.super:
+        raise AcessoNegado("O Super Admin não envia laudos das empresas.")
+    if not provedor.configurado:
+        raise ErroNegocio("Assinatura à distância não configurada.")
+    sig = _validar_signatario(dados_signatario or {}, provedor.canais)
+    agora = db.agora()
+    with db.conectar() as con:
+        r = _vistoria_no_escopo(con, ator, vistoria_id)
+        if r["status"] != "concluida":
+            raise ErroNegocio("Finalize a vistoria e gere o PDF antes de enviar para assinatura.")
+        l = con.execute("SELECT * FROM laudos WHERE vistoria_id = ? AND status = 'emitido' ORDER BY id DESC LIMIT 1",
+                        (r["id"],)).fetchone()
+        if not l:
+            raise ErroNegocio("Nenhum laudo emitido para esta vistoria.")
+        if con.execute("SELECT 1 FROM assinaturas_remotas WHERE laudo_id = ? AND status IN ('rascunho','aguardando')",
+                       (l["id"],)).fetchone():
+            raise ErroNegocio("Já existe uma solicitação aguardando assinatura para este laudo. Cancele-a antes de enviar de novo.")
+        caminho = caminho_pdf(l["arquivo_pdf"])
+        if not caminho.exists():
+            raise ErroNegocio("O PDF do laudo não está mais no servidor. Clique em “Finalizar inspeção e preparar PDF” "
+                              "para gerá-lo de novo e então envie.")
+        pdf = caminho.read_bytes()
+        aid = con.execute(
+            "INSERT INTO assinaturas_remotas(empresa_id, vistoria_id, laudo_id, usuario_id, provedor, signatario_nome, "
+            "signatario_email, signatario_telefone, canal, status, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,'rascunho',?,?)",
+            (r["empresa_id"], r["id"], l["id"], ator.id, provedor.nome, sig.nome, mascarar_email(sig.email),
+             mascarar_telefone(sig.telefone), sig.canal, agora, agora)).lastrowid
+        numero, emp = r["numero"], r["empresa_id"]
+    contato = mascarar_email(sig.email) if sig.canal == "email" else mascarar_telefone(sig.telefone)
+    try:
+        res = provedor.enviar_para_assinatura(f"Laudo de vistoria {numero}", f"{numero}.pdf", pdf, sig)
+    except Exception as exc:
+        msg = str(exc) if isinstance(exc, ErroProvedor) else f"Erro inesperado ao enviar ({type(exc).__name__})."
+        _atualizar_assinatura(aid, status="erro", mensagem_erro=msg[:500], id_externo=getattr(exc, "id_externo", "") or "")
+        registrar(ator, "assinatura_erro", f"Falha ao enviar o laudo {numero} para assinatura: {msg[:200]}",
+                  vistoria_id=vistoria_id, empresa_id=emp)
+        return aid
+    _atualizar_assinatura(aid, status="aguardando", id_externo=res.id_externo, documento_externo=res.documento_id,
+                          signatario_externo=res.signatario_id, link_assinatura=res.link or "", mensagem_erro="",
+                          consultado_em=db.agora())
+    registrar(ator, "assinatura_solicitada", f"{ator.nome} enviou o laudo {numero} para assinatura à distância "
+              f"({provedor.nome}, {contato or sig.canal})", vistoria_id=vistoria_id, empresa_id=emp)
+    return aid
+
+
+def listar_assinaturas_vistoria(ator, vistoria_id):
+    """Solicitações da vistoria (mais recente primeiro). versao_anterior = laudo já substituído."""
+    with db.conectar() as con:
+        r = _vistoria_no_escopo(con, ator, vistoria_id)
+        linhas = _rows(con.execute(
+            "SELECT a.*, l.status AS laudo_status FROM assinaturas_remotas a LEFT JOIN laudos l ON l.id = a.laudo_id "
+            "WHERE a.vistoria_id = ? AND a.empresa_id = ? ORDER BY a.id DESC", (r["id"], r["empresa_id"])))
+    for a in linhas:
+        a["versao_anterior"] = bool(a["laudo_id"] and a.get("laudo_status") != "emitido")
+    return linhas
+
+
+def atualizar_status_assinatura(ator, assinatura_id, provedor, forcar=False):
+    """Consulta o provedor (no máximo 1x a cada CACHE_STATUS_S, salvo forcar=True) e grava o
+    status. Ao ficar 'assinado', já baixa e arquiva o PDF assinado. Devolve a solicitação."""
+    from assinatura import STATUS, ErroProvedor
+    a = _obter_assinatura(ator, assinatura_id)
+    falta_arquivo = a["status"] == "assinado" and not a["arquivo_assinado"]
+    if (a["status"] != "aguardando" and not falta_arquivo) or not a["id_externo"]:
+        return a
+    if not provedor.configurado or provedor.nome != a["provedor"]:
+        return a
+    limite = (db.agora_dt() - timedelta(seconds=CACHE_STATUS_S)).strftime("%Y-%m-%d %H:%M:%S")
+    if not forcar and a["consultado_em"] and a["consultado_em"] > limite:
+        return a
+    if a["status"] == "aguardando":
+        try:
+            res = provedor.consultar_status(a["id_externo"], a["documento_externo"])
+        except ErroProvedor as exc:
+            _atualizar_assinatura(a["id"], mensagem_erro=str(exc)[:500], consultado_em=db.agora())
+            return _obter_assinatura(ator, assinatura_id)
+        novo = res.status if res.status in STATUS else "aguardando"
+        _atualizar_assinatura(a["id"], status=novo, mensagem_erro="", consultado_em=db.agora())
+        if novo != a["status"]:
+            with db.conectar() as con:
+                num = con.execute("SELECT numero FROM vistorias WHERE id = ?", (a["vistoria_id"],)).fetchone()["numero"]
+            registrar(ator, f"assinatura_{novo}", f"Laudo {num}: {STATUS_ASSINATURA.get(novo, novo)} ({a['provedor']})",
+                      vistoria_id=a["vistoria_id"], empresa_id=a["empresa_id"])
+    else:
+        _atualizar_assinatura(a["id"], consultado_em=db.agora())
+    a = _obter_assinatura(ator, assinatura_id)
+    if a["status"] == "assinado" and not a["arquivo_assinado"]:
+        try:
+            salvar_documento_assinado(ator, a["id"], provedor)
+        except ErroNegocio as exc:
+            _atualizar_assinatura(a["id"], mensagem_erro=str(exc)[:500])
+        a = _obter_assinatura(ator, assinatura_id)
+    return a
+
+
+def salvar_documento_assinado(ator, assinatura_id, provedor):
+    """Baixa o PDF assinado do provedor e grava ao lado do original:
+    pdfs/emp_X/{numero}_assinado.pdf. Devolve o caminho relativo."""
+    from assinatura import ErroProvedor
+    with db.conectar() as con:
+        a = _assinatura_no_escopo(con, ator, assinatura_id)
+        if a["status"] != "assinado":
+            raise ErroNegocio("O documento ainda não foi assinado.")
+        v = con.execute("SELECT numero FROM vistorias WHERE id = ?", (a["vistoria_id"],)).fetchone()
+        l = con.execute("SELECT status FROM laudos WHERE id = ?", (a["laudo_id"],)).fetchone() if a["laudo_id"] else None
+    if not provedor.configurado or provedor.nome != a["provedor"]:
+        raise ErroNegocio("O provedor desta assinatura não está configurado para baixar o PDF assinado.")
+    try:
+        pdf = provedor.baixar_documento_assinado(a["id_externo"], a["documento_externo"])
+    except ErroProvedor as exc:
+        raise ErroNegocio(str(exc))
+    if not pdf or not pdf.startswith(b"%PDF"):
+        raise ErroNegocio("O arquivo recebido do provedor não é um PDF válido.")
+    base = re.sub(r"[^A-Za-z0-9_-]", "_", v["numero"])
+    sufixo = "_assinado.pdf" if (l and l["status"] == "emitido") else f"_laudo{a['laudo_id']}_assinado.pdf"
+    rel = (Path("pdfs") / f"emp_{a['empresa_id']}" / (base + sufixo)).as_posix()
+    caminho_pdf(rel).parent.mkdir(parents=True, exist_ok=True)
+    caminho_pdf(rel).write_bytes(pdf)
+    _atualizar_assinatura(a["id"], arquivo_assinado=rel, mensagem_erro="")
+    registrar(ator, "laudo_assinado_arquivado", f"PDF assinado do laudo {v['numero']} arquivado",
+              vistoria_id=a["vistoria_id"], empresa_id=a["empresa_id"])
+    return rel
+
+
+def pdf_assinado(ator, assinatura_id, provedor=None):
+    """(bytes, nome_arquivo). Se o arquivo sumiu do disco (ex.: Streamlit Cloud reiniciou),
+    baixa de novo do provedor pelo id_externo guardado no banco."""
+    a = _obter_assinatura(ator, assinatura_id)
+    if a["status"] != "assinado":
+        raise ErroNegocio("O documento ainda não foi assinado.")
+    rel = a["arquivo_assinado"]
+    if not rel or not caminho_pdf(rel).exists():
+        if provedor is None:
+            raise ErroNegocio("PDF assinado não encontrado no servidor.")
+        rel = salvar_documento_assinado(ator, assinatura_id, provedor)
+    return caminho_pdf(rel).read_bytes(), Path(rel).name
+
+
+def cancelar_assinatura(ator, assinatura_id, provedor):
+    from assinatura import ErroProvedor
+    exigir(ator, "laudos.enviar")
+    if ator.super:
+        raise AcessoNegado("O Super Admin não altera laudos das empresas.")
+    a = _obter_assinatura(ator, assinatura_id)
+    if a["status"] not in ("rascunho", "aguardando", "erro"):
+        raise ErroNegocio("Esta solicitação não está pendente.")
+    if a["id_externo"] and a["status"] != "erro":
+        if not provedor.configurado or provedor.nome != a["provedor"]:
+            raise ErroNegocio("O provedor desta assinatura não está configurado: cancele pelo painel do provedor.")
+        try:
+            provedor.cancelar(a["id_externo"], a["documento_externo"])
+        except ErroProvedor as exc:
+            raise ErroNegocio(str(exc))
+    _atualizar_assinatura(a["id"], status="cancelado")
+    registrar(ator, "assinatura_cancelada", f"{ator.nome} cancelou a solicitação de assinatura #{a['id']}"
+              + (" (versão anterior do laudo)" if a["versao_anterior"] else ""),
+              vistoria_id=a["vistoria_id"], empresa_id=a["empresa_id"])
+
+
+def cancelar_assinaturas_substituidas(ator, vistoria_id, provedor):
+    """Após finalizar de novo: cancela as solicitações pendentes do laudo antigo (melhor esforço).
+    As que não puderem ser canceladas continuam aparecendo como 'versão anterior'. Devolve quantas."""
+    n = 0
+    for a in listar_assinaturas_vistoria(ator, vistoria_id):
+        if a["versao_anterior"] and a["status"] in ("rascunho", "aguardando"):
+            try:
+                cancelar_assinatura(ator, a["id"], provedor)
+                n += 1
+            except (AcessoNegado, ErroNegocio):
+                pass
+    return n
 
 
 # ---------------------------------------------------------------------------

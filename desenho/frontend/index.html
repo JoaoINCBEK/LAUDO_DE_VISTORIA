@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>laudo_canvas</title>
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Source Sans Pro", sans-serif; }
+  #wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 1px 0 2px; }
+  #pad { border: 1px solid #D5DBE1; border-radius: 10px; background: #fff; overflow: hidden;
+    touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  canvas { display: block; touch-action: none; }
+  #bar { display: flex; gap: 8px; box-sizing: border-box; }
+  #bar button { flex: 1 1 0; min-width: 0; height: 36px; padding: 0 6px; border: 1px solid #CBD2D9; border-radius: 8px;
+    background: #fff; color: #1B2A38; font: inherit; font-size: 14px; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+  #bar button:active:not(:disabled) { background: #EEF1F4; }
+  #bar button:disabled { opacity: .45; cursor: default; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="pad"><canvas id="c"></canvas></div>
+  <div id="bar">
+    <button id="desfazer" type="button">↶ Desfazer</button>
+    <button id="refazer" type="button">↷ Refazer</button>
+    <button id="limpar" type="button">Limpar</button>
+  </div>
+</div>
+<script>
+(function () {
+  "use strict";
+  // Protocolo de componentes do Streamlit (postMessage), sem a biblioteca npm.
+  function post(type, extra) {
+    var m = { isStreamlitMessage: true, type: type };
+    if (extra) { for (var k in extra) { m[k] = extra[k]; } }
+    window.parent.postMessage(m, "*");
+  }
+
+  var BAR_H = 36, GAP = 6, SIG_MAX_W = 900, AV_MAX_W = 1100, MIN_H = 140;
+  var cv = document.getElementById("c"), ctx = cv.getContext("2d");
+  var wrap = document.getElementById("wrap"), bar = document.getElementById("bar");
+  var bDesf = document.getElementById("desfazer"), bRef = document.getElementById("refazer"),
+      bLimp = document.getElementById("limpar");
+
+  var modo = "assinatura", versao = null, cor = "#111827", esp = 0.012, prop = 2;
+  var tracos = [], hist = [[]], hi = 0, atual = null, ativo = null, ultimo = null;
+  var base = null, baseSrc = null;
+  var W = 0, H = 0, dpr = 1, esc = 1, oy = 0, frameH = -1, seq = 0, pendente = false;
+
+  function lim(v, a, b) { return v < a ? a : (v > b ? b : v); }
+  function r4(v) { return Math.round(v * 10000) / 10000; }
+
+  /* ---------- tela disponível ---------- */
+  function alturaVisivel() {
+    try {
+      var pw = window.parent, vv = pw.visualViewport;
+      var h = vv ? vv.height : pw.innerHeight, topo = 0;
+      var hd = pw.document.querySelector('[data-testid="stHeader"]');
+      if (hd) { var r = hd.getBoundingClientRect(); if (r.bottom > 0 && r.bottom < h / 2) { topo = r.bottom; } }
+      return h - topo;
+    } catch (e) {
+      return window.screen ? Math.min(screen.width, screen.height) : 600;
+    }
+  }
+  function paisagem() {
+    try { return window.parent.innerWidth > window.parent.innerHeight; }
+    catch (e) { return window.innerWidth > window.innerHeight; }
+  }
+
+  /* ---------- coordenadas ----------
+     avarias:    (x, y) em fração da largura/altura do desenho-base
+     assinatura: unidade = altura da área; se a área ficar estreita (girou para retrato),
+                 a escala diminui para o desenho inteiro continuar visível */
+  function ajustarEscala() {
+    if (modo === "avarias") { return; }
+    var maxX = 0;
+    for (var i = 0; i < tracos.length; i++) {
+      var t = tracos[i];
+      for (var j = 0; j < t.p.length; j++) { if (t.p[j][0] + t.w / 2 > maxX) { maxX = t.p[j][0] + t.w / 2; } }
+    }
+    esc = H;
+    if (maxX * esc > W) { esc = W / maxX; }
+    oy = (H - esc) / 2;
+  }
+  function paraPx(x, y) { return modo === "avarias" ? [x * W, y * H] : [x * esc, y * esc + oy]; }
+  function paraUn(px, py) {
+    if (modo === "avarias") { return [r4(lim(px / W, 0, 1)), r4(lim(py / H, 0, 1))]; }
+    return [r4(lim(px / esc, 0, W / esc)), r4(lim((py - oy) / esc, 0, 1))];
+  }
+  function larguraPx(w) { return Math.max(1.2, w * (modo === "avarias" ? W : esc)); }
+  // Coordenada do toque: sempre relativa ao retângulo ATUAL do canvas (vale com zoom/transform).
+  function pos(e) {
+    var r = cv.getBoundingClientRect();
+    return [(e.clientX - r.left) * (W / r.width), (e.clientY - r.top) * (H / r.height)];
+  }
+
+  /* ---------- desenho ---------- */
+  function estilo(t) {
+    ctx.strokeStyle = t.c; ctx.fillStyle = t.c; ctx.lineWidth = larguraPx(t.w);
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+  }
+  function ponto(px, t) { ctx.beginPath(); ctx.arc(px[0], px[1], larguraPx(t.w) / 2, 0, Math.PI * 2); ctx.fill(); }
+  function tracar(t) {
+    var p = t.p; if (!p.length) { return; }
+    estilo(t);
+    var a = paraPx(p[0][0], p[0][1]);
+    if (p.length === 1) { ponto(a, t); return; }
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]);
+    for (var i = 1; i < p.length - 1; i++) {
+      var b = paraPx(p[i][0], p[i][1]), c = paraPx(p[i + 1][0], p[i + 1][1]);
+      ctx.quadraticCurveTo(b[0], b[1], (b[0] + c[0]) / 2, (b[1] + c[1]) / 2);
+    }
+    var z = paraPx(p[p.length - 1][0], p[p.length - 1][1]);
+    ctx.lineTo(z[0], z[1]); ctx.stroke();
+  }
+  function redesenhar() {
+    if (!W || !H) { return; }
+    ajustarEscala();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, W, H);
+    if (modo === "avarias" && base && base.naturalWidth) { ctx.drawImage(base, 0, 0, W, H); }
+    for (var i = 0; i < tracos.length; i++) { tracar(tracos[i]); }
+    if (atual) { tracar(atual); }
+    botoes();
+  }
+  function botoes() {
+    bDesf.disabled = hi <= 0;
+    bRef.disabled = hi >= hist.length - 1;
+    bLimp.disabled = !tracos.length;
+  }
+
+  /* ---------- tamanho (retrato / paisagem) ---------- */
+  function layout(forcar) {
+    if (atual) { pendente = true; return; }       // não muda o tamanho no meio de um traço
+    pendente = false;
+    var disp = Math.max(160, document.documentElement.clientWidth - 2);
+    var altMax = alturaVisivel() - BAR_H - GAP - 10;
+    var w, h;
+    if (modo === "avarias") {
+      w = Math.min(disp, AV_MAX_W); h = w / prop;
+      if (h > altMax) { h = Math.max(altMax, MIN_H); w = Math.min(w, h * prop); h = w / prop; }
+    } else {
+      w = Math.min(disp, SIG_MAX_W);
+      h = paisagem() ? w / 2.2 : Math.min(Math.max(w / 1.9, 150), 260);
+      h = Math.max(110, Math.min(h, Math.max(altMax, 110)));
+    }
+    w = Math.floor(w); h = Math.floor(h);
+    var nd = Math.min(window.devicePixelRatio || 1, 3);   // buffer = CSS x dpr (máx. 3)
+    if (forcar || w !== W || h !== H || nd !== dpr) {
+      W = w; H = h; dpr = nd;
+      cv.style.width = W + "px"; cv.style.height = H + "px";
+      cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+      bar.style.width = (W + 2) + "px";
+      redesenhar();
+    }
+    var fh = Math.ceil(wrap.getBoundingClientRect().height) + 2;
+    if (fh !== frameH) { frameH = fh; post("streamlit:setFrameHeight", { height: fh }); }
+  }
+  var timer = null;
+  function agendar() { clearTimeout(timer); timer = setTimeout(function () { layout(false); }, 120); }
+
+  /* ---------- traço ---------- */
+  function inicio(px) {
+    atual = { c: cor, w: esp, p: [paraUn(px[0], px[1])] };
+    ultimo = px; estilo(atual); ponto(px, atual);
+  }
+  function mover(px) {
+    if (!atual) { return; }
+    var dx = px[0] - ultimo[0], dy = px[1] - ultimo[1];
+    if (dx * dx + dy * dy < 0.8) { return; }
+    estilo(atual);
+    ctx.beginPath(); ctx.moveTo(ultimo[0], ultimo[1]); ctx.lineTo(px[0], px[1]); ctx.stroke();
+    atual.p.push(paraUn(px[0], px[1]));
+    ultimo = px;
+  }
+  function fim() {
+    if (!atual) { return; }
+    tracos = tracos.concat([atual]); atual = null;
+    registrar(); enviar();
+    if (pendente) { layout(false); }
+  }
+  function registrar() {
+    hist = hist.slice(0, hi + 1); hist.push(tracos.slice());
+    if (hist.length > 150) { hist.shift(); }
+    hi = hist.length - 1; botoes();
+  }
+  function enviar() {
+    seq += 1;
+    post("streamlit:setComponentValue", { value: { versao: versao, seq: seq, tracos: tracos }, dataType: "json" });
+  }
+
+  bDesf.addEventListener("click", function () {
+    if (hi > 0) { hi -= 1; tracos = hist[hi].slice(); redesenhar(); enviar(); }
+  });
+  bRef.addEventListener("click", function () {
+    if (hi < hist.length - 1) { hi += 1; tracos = hist[hi].slice(); redesenhar(); enviar(); }
+  });
+  bLimp.addEventListener("click", function () {        // só os traços: o desenho-base fica
+    if (tracos.length) { tracos = []; registrar(); redesenhar(); enviar(); }
+  });
+
+  /* ---------- eventos de toque / caneta / mouse ---------- */
+  function bloquear(e) { if (e.cancelable) { e.preventDefault(); } }
+  if (window.PointerEvent) {
+    cv.addEventListener("pointerdown", function (e) {
+      if (ativo !== null || (e.pointerType === "mouse" && e.button !== 0)) { return; }
+      bloquear(e); ativo = e.pointerId;
+      try { cv.setPointerCapture(e.pointerId); } catch (x) {}
+      inicio(pos(e));
+    });
+    cv.addEventListener("pointermove", function (e) {
+      if (e.pointerId !== ativo) { return; }
+      bloquear(e);
+      var lista = e.getCoalescedEvents ? e.getCoalescedEvents() : null;
+      if (!lista || !lista.length) { lista = [e]; }
+      for (var i = 0; i < lista.length; i++) { mover(pos(lista[i])); }
+    });
+    var soltar = function (e) { if (e.pointerId !== ativo) { return; } ativo = null; fim(); };
+    cv.addEventListener("pointerup", soltar);
+    cv.addEventListener("pointercancel", soltar);
+    cv.addEventListener("lostpointercapture", soltar);
+  } else {
+    // iOS antigo (sem Pointer Events): toque + mouse
+    var achar = function (e) {
+      for (var i = 0; i < e.changedTouches.length; i++) { if (e.changedTouches[i].identifier === ativo) { return e.changedTouches[i]; } }
+      return null;
+    };
+    cv.addEventListener("touchstart", function (e) {
+      bloquear(e); if (ativo !== null) { return; }
+      var t = e.changedTouches[0]; ativo = t.identifier; inicio(pos(t));
+    }, { passive: false });
+    cv.addEventListener("touchmove", function (e) { bloquear(e); var t = achar(e); if (t) { mover(pos(t)); } }, { passive: false });
+    var tfim = function (e) { var t = achar(e); if (t) { ativo = null; fim(); } };
+    cv.addEventListener("touchend", tfim);
+    cv.addEventListener("touchcancel", tfim);
+    var mouse = false;
+    cv.addEventListener("mousedown", function (e) { if (e.button === 0) { mouse = true; bloquear(e); inicio(pos(e)); } });
+    window.addEventListener("mousemove", function (e) { if (mouse) { mover(pos(e)); } });
+    window.addEventListener("mouseup", function () { if (mouse) { mouse = false; fim(); } });
+  }
+
+  /* ---------- mudanças de tela ---------- */
+  var ouvidos = [];
+  function ouvir(obj, ev) { try { obj.addEventListener(ev, agendar); ouvidos.push([obj, ev]); } catch (e) {} }
+  ouvir(window, "resize");
+  ouvir(window, "orientationchange");
+  try {
+    var pw = window.parent;
+    ouvir(pw, "resize");
+    ouvir(pw, "orientationchange");
+    if (pw.visualViewport) { ouvir(pw.visualViewport, "resize"); }
+    ouvir(pw.document, "fullscreenchange");
+    ouvir(pw.document, "webkitfullscreenchange");
+  } catch (e) {}
+  try { if (window.screen && screen.orientation) { ouvir(screen.orientation, "change"); } } catch (e) {}
+  window.addEventListener("pagehide", function () {
+    ouvidos.forEach(function (o) { try { o[0].removeEventListener(o[1], agendar); } catch (e) {} });
+  });
+
+  /* ---------- dados vindos do Python ---------- */
+  function carregarBase(src) {
+    baseSrc = src; base = null;
+    if (!src) { return; }
+    var img = new Image();
+    img.onload = function () { if (baseSrc === src) { base = img; redesenhar(); } };
+    img.src = src;
+  }
+  function copiar(lista) {
+    var out = [];
+    (lista || []).forEach(function (t) {
+      if (t && t.p && t.p.length) { out.push({ c: t.c, w: +t.w, p: t.p.map(function (q) { return [+q[0], +q[1]]; }) }); }
+    });
+    return out;
+  }
+  window.addEventListener("message", function (ev) {
+    var d = ev.data;
+    if (!d || d.type !== "streamlit:render") { return; }
+    var a = d.args || {};
+    modo = a.modo === "avarias" ? "avarias" : "assinatura";
+    if (a.cor) { cor = String(a.cor); }
+    if (a.espessura) { esp = +a.espessura; }
+    if (a.proporcao) { prop = +a.proporcao; }
+    var nova = a.versao !== versao;
+    if (nova) {   // só aqui o estado local é trocado pelo que veio do Python (desfazer continua valendo)
+      versao = a.versao; tracos = copiar(a.tracos); hist = [tracos.slice()]; hi = 0; atual = null; ativo = null;
+    }
+    if ((a.imagem || null) !== baseSrc) { carregarBase(a.imagem || null); }
+    layout(nova);
+  });
+
+  post("streamlit:componentReady", { apiVersion: 1 });
+})();
+</script>
+</body>
+</html>

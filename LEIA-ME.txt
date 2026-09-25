@@ -1,0 +1,135 @@
+LAUDO DE VISTORIA — PLATAFORMA MULTIEMPRESA (SaaS)
+====================================================
+
+PRIMEIRO USO (depois da atualização multiempresa)
+1. Crie o Super Admin (dono da plataforma), na pasta do projeto:
+       python gerenciar.py criar-superadmin
+   No Streamlit Cloud, use os Secrets em vez do comando:
+       [superadmin]
+       login = "seu_login"
+       nome  = "Seu Nome"
+       senha = "uma-senha-forte"
+2. Ao abrir o app pela 1ª vez, os dados antigos (users.json, inspections.json,
+   emitentes.json) são importados para o banco autocheck_data/laudo.db, dentro de
+   uma empresa inicial. Os arquivos JSON NÃO são apagados nem alterados, e uma
+   cópia fica em autocheck_data/backup_legado_<data>/.
+3. Usuários antigos continuam com a mesma senha. Quem ainda usa a senha de
+   demonstração (admin123 / inspetor123) é obrigado a trocá-la no próximo login.
+
+PERFIS
+- Super Admin: empresas, planos, limites, bloqueio, usuários, logs, integrações.
+- Administrador: dashboard, vistorias, veículos, clientes, laudos, usuários,
+  relatórios, logs e configurações — somente da própria empresa.
+- Vistoriador: nova vistoria, continuar pendentes, as próprias vistorias e laudos.
+
+COMANDOS
+    python gerenciar.py criar-superadmin
+    python gerenciar.py redefinir-senha LOGIN
+    python -m unittest discover -s tests -v        (testes de isolamento/permissões/fluxo)
+
+ASSINATURA ELETRÔNICA À DISTÂNCIA (OPCIONAL)
+Na etapa 11, depois de "Finalizar inspeção e preparar PDF", aparece "Enviar para
+assinatura à distância" (perfis com permissão de enviar laudos). O MESMO PDF já
+arquivado é enviado ao provedor; o cliente recebe o link por e-mail, WhatsApp ou SMS
+e assina pelo celular. O status aparece na etapa 11, no detalhe da vistoria e em Laudos:
+  🟡 Aguardando assinatura · 🟢 Documento assinado · 🔴 Recusado/Cancelado · 🔴 Erro ao enviar
+Quando assinado, o PDF assinado é baixado do provedor e gravado ao lado do original
+(pdfs/emp_X/<numero>_assinado.pdf) com o botão "⬇ Baixar PDF assinado".
+
+Provedor preparado: Clicksign, API v3 (envelopes) — https://developers.clicksign.com/
+Sem configuração o app funciona normalmente e o botão aparece desabilitado.
+
+Configuração (SEM valores reais aqui). Local: .streamlit/secrets.toml.
+Streamlit Cloud: Settings › Secrets. Não coloque a chave no código.
+    [assinatura]
+    provider = "clicksign"                               # ou "desativado"
+    api_key  = "COLE_AQUI_O_TOKEN_DA_CLICKSIGN"
+    base_url = "https://sandbox.clicksign.com/api/v3"    # testes (sem valor jurídico)
+    # base_url = "https://app.clicksign.com/api/v3"      # produção
+    timeout  = 20
+Alternativa: variáveis de ambiente ASSINATURA_PROVIDER, ASSINATURA_API_KEY,
+ASSINATURA_BASE_URL e ASSINATURA_TIMEOUT. O Super Admin vê em Integrações se o
+provedor está configurado (a chave nunca é exibida).
+
+Limitações:
+- Sem webhook (o Streamlit não recebe chamadas externas): o status é consultado ao
+  abrir o laudo (no máximo a cada 45 s) ou pelo botão "Atualizar status".
+- Disco temporário no Streamlit Cloud: o PDF assinado pode sumir do disco quando o app
+  reinicia. O banco guarda o id do envelope no provedor e o arquivo é baixado de novo
+  automaticamente ao clicar em "Baixar PDF assinado".
+- Se a vistoria for finalizada de novo, a solicitação pendente do laudo antigo é
+  cancelada no provedor e aparece como "referente a versão anterior do laudo".
+- Antes de usar em produção, faça um envio completo no sandbox da Clicksign
+  (itens marcados como TODO em assinatura/clicksign.py).
+
+ÁREAS DE DESENHO (ASSINATURAS E AVARIAS)
+Componente próprio em desenho/ (HTML/JS estático, sem npm). A área usa a largura real
+da tela e, com o celular na horizontal, fica maior (a altura cabe na tela sem rolar).
+Girar o aparelho não apaga o desenho. Desfazer / Refazer / Limpar ficam abaixo da área.
+Vistorias antigas (desenho de avarias 400x460) continuam abrindo normalmente.
+
+ATENÇÃO — HOSPEDAGEM
+O banco (laudo.db) e os PDFs ficam em disco. Em hospedagens com disco temporário
+(ex.: Streamlit Community Cloud) esses arquivos são perdidos quando o app reinicia —
+isso já acontecia com os JSON. Para produção, use um servidor com disco persistente
+ou migre saas/db.py para um banco externo (PostgreSQL).
+
+----------------------------------------------------------------------------
+
+AUTO CHECK / LAUDO DE VISTORIA — AVARIAS ATUALIZADAS
+
+Esta versão substitui os desenhos genéricos da etapa 06 • Avarias pelos desenhos técnicos completos enviados.
+
+Incluídos:
+- Carro / Sedan
+- Moto
+- Moto esportiva
+- Van
+- Caminhonete
+
+Cada desenho já contém lateral esquerda, lateral direita, frente, traseira e vista superior/teto.
+Por isso, a etapa 06 não possui mais botões separados para frente, trás e lados.
+
+COMO FUNCIONA
+1. Abra a etapa 06 • Avarias.
+2. Abra "Escolher desenho do veículo".
+3. Escolha o desenho correspondente ao veículo.
+4. Selecione "X — Avaria / arranhão" e desenhe um X no local.
+5. Selecione "O — Amassado" e desenhe um círculo no local.
+6. Use "Limpar desenho" para apagar as marcações e começar novamente.
+7. Preencha os detalhes e clique em "Registrar ocorrência".
+
+IMPORTANTE
+- O app.py e a pasta diagramas precisam ficar juntos.
+- A pasta diagramas já contém as imagens utilizadas pelo sistema.
+- Se você já possui autocheck_data, não apague essa pasta: ela contém os dados das inspeções.
+
+Demonstração: admin / admin123 • inspetor / inspetor123"
+
+python -m streamlit run app.py
+
+
+CONSULTA AUTOMÁTICA DE PLACA (OPCIONAL)
+
+O sistema já está preparado para consultar uma integração de veículo pelo servidor,
+sem expor chave de API no navegador. Não há fornecedor configurado por padrão.
+
+Se a empresa possuir um backend/proxy de consulta, crie o arquivo:
+.streamlit/secrets.toml
+
+Com este conteúdo (ajuste a URL do seu backend):
+VEHICLE_LOOKUP_URL = "https://seu-backend.exemplo/veiculos/{plate}"
+VEHICLE_LOOKUP_TOKEN = "token-opcional-do-servidor"
+
+O endpoint deve responder JSON com marca/modelo/ano/cor, diretamente ou dentro de
+data, veiculo, vehicle ou result. Se não houver resultado, o formulário preenche
+NÃO ENCONTRADO e continua liberado para edição manual. Em falhas de conexão, nada
+é bloqueado e os dados atuais são preservados.
+
+st.markdown(card_open(), unsafe_allow_html=True)
+st.markdown(card_close(), unsafe_allow_html=True)
+
+
+paratrocar a senha rode no cmd
+python -c "import hashlib; print(hashlib.sha256('minhaSenhanova'.encode('utf-8')).hexdigest())"
+

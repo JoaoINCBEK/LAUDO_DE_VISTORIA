@@ -8,12 +8,14 @@ import base64
 import urllib.parse
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from html import escape
 from typing import Callable
 
 import altair as alt
 import pandas as pd
 import streamlit as st
 
+import assinatura
 import placa_api
 from saas import db, rbac, servicos as S
 from saas.rbac import AcessoNegado, pode
@@ -33,6 +35,7 @@ class Contexto:
     tipos_veiculo: dict          # chave do desenho -> nome ("sedan" -> "Sedã")
     miniatura: Callable          # base64 -> bytes JPEG leves
     rotulos_fotos: dict = None   # chave da foto -> nome da posição ("lateral_dir" -> "Lateral direita")
+    assinatura_cfg: object = None  # assinatura.Config (provedor de assinatura à distância)
 
 
 # ---------------------------------------------------------------------------
@@ -180,20 +183,138 @@ def grafico_vistorias(serie):
     st.altair_chart(ch, use_container_width=True)
 
 
-def links_envio(numero, veiculo, placa, telefone=""):
+def links_envio(numero, veiculo, placa, telefone="", link=""):
     """E-mail / WhatsApp com o resumo do laudo. O PDF é anexado pelo próprio usuário
-    (sem serviço de e-mail configurado não é possível anexar automaticamente)."""
+    (sem serviço de e-mail configurado não é possível anexar automaticamente).
+    Com `link` (assinatura à distância), a mensagem leva o link de assinatura."""
     texto = f"Laudo de vistoria {numero} — {veiculo or 'veículo'} — placa {placa or '-'}."
     tel = "".join(ch for ch in str(telefone or "") if ch.isdigit())
     if tel and not tel.startswith("55") and len(tel) in (10, 11):
         tel = "55" + tel
-    wa = f"https://wa.me/{tel}?text=" + urllib.parse.quote(texto + " Segue o PDF em anexo.")
+    extra = f" Assine o laudo pelo link: {link}" if link else " Segue o PDF em anexo."
+    wa = f"https://wa.me/{tel}?text=" + urllib.parse.quote(texto + extra)
     mail = "mailto:?subject=" + urllib.parse.quote(f"Laudo de vistoria {numero}") + "&body=" + urllib.parse.quote(
-        texto + "\n\nSegue o laudo em PDF em anexo.")
+        texto + ("\n\nAssine o laudo pelo link:\n" + link if link else "\n\nSegue o laudo em PDF em anexo."))
     a, b = st.columns(2)
     a.link_button("Enviar por WhatsApp", wa, use_container_width=True)
     b.link_button("Enviar por e-mail", mail, use_container_width=True)
-    st.caption("Baixe o PDF e anexe-o na conversa ou no e-mail.")
+    if not link:
+        st.caption("Baixe o PDF e anexe-o na conversa ou no e-mail.")
+
+
+# ---------------------------------------------------------------------------
+# Assinatura eletrônica à distância (review, detalhe da vistoria e laudos)
+# ---------------------------------------------------------------------------
+ICONE_ASSINATURA = {"rascunho": "🟡", "aguardando": "🟡", "assinado": "🟢", "recusado": "🔴",
+                    "cancelado": "🔴", "expirado": "🔴", "erro": "🔴"}
+
+
+def painel_assinaturas(ctx, vistoria_id, numero, proprietario=None, permitir_envio=False, chave="x"):
+    """Status das solicitações (consulta automática com cache curto) + ações.
+    permitir_envio=True: mostra "Enviar para assinatura à distância" (PDF atual já arquivado)."""
+    provedor = assinatura.criar_provedor(ctx.assinatura_cfg)
+    ok, lista = protegido(S.listar_assinaturas_vistoria, ctx.ator, vistoria_id)
+    if not ok or (not lista and not permitir_envio):
+        return
+    pode_enviar = pode(ctx.ator, "laudos.enviar") and not ctx.ator.super
+    for i, a in enumerate(lista):     # consulta automática ao abrir (o banco guarda a hora da última)
+        if a["status"] == "aguardando" or (a["status"] == "assinado" and not a["arquivo_assinado"]):
+            try:
+                lista[i] = S.atualizar_status_assinatura(ctx.ator, a["id"], provedor)
+            except (AcessoNegado, S.ErroNegocio):
+                pass
+    with st.container(border=True, key=f"ac_card_ass_{chave}"):
+        st.markdown(section_html("Assinatura eletrônica à distância",
+                                 "O cliente recebe o link do provedor e assina pelo celular."), unsafe_allow_html=True)
+        msg = st.session_state.pop(f"ass_msg_{chave}", None)
+        if msg:
+            (st.success if msg[0] == "ok" else st.error)(msg[1])
+        for a in lista[:5]:
+            _linha_assinatura(ctx, a, numero, provedor, pode_enviar, chave)
+        if not permitir_envio or not pode_enviar:
+            return
+        pendente = any(a["status"] in assinatura.STATUS_PENDENTES and not a["versao_anterior"] for a in lista)
+        if not provedor.configurado:
+            st.button("Enviar para assinatura à distância", disabled=True, use_container_width=True, key=f"ass_btn_{chave}")
+            st.caption("Assinatura à distância não configurada." + (f" ({provedor.motivo})" if provedor.motivo else "")
+                       + " O administrador da plataforma configura o provedor nos Secrets.")
+            return
+        if pendente:
+            return
+        aberto_k = f"ass_form_{chave}"
+        if not st.session_state.get(aberto_k):
+            if st.button("Enviar para assinatura à distância", type="primary", use_container_width=True, key=f"ass_btn_{chave}"):
+                st.session_state[aberto_k] = True
+                st.rerun()
+            return
+        _form_assinatura(ctx, vistoria_id, proprietario or {}, provedor, chave)
+
+
+def _linha_assinatura(ctx, a, numero, provedor, pode_enviar, chave):
+    k = f"{chave}_{a['id']}"
+    contato = a["signatario_email"] if a["canal"] == "email" else a["signatario_telefone"]
+    canal = assinatura.CANAIS.get(a["canal"], a["canal"])
+    st.markdown(f"{ICONE_ASSINATURA.get(a['status'], '•')} <b>{S.STATUS_ASSINATURA.get(a['status'], a['status'])}</b> · "
+                f"{escape(a['signatario_nome'] or '—')} · {canal} {escape(contato or '')}<br>"
+                f"<span style='color:#6B7785;font-size:13px'>Enviado em {db.br(a['created_at'])} · provedor "
+                f"{escape(a['provedor'])}" + (f" · consultado às {db.br(a['consultado_em'])[11:]}" if a["consultado_em"] else "")
+                + "</span>", unsafe_allow_html=True)
+    if a["versao_anterior"]:
+        st.caption("⚠ Referente a versão anterior do laudo. Envie a versão atual para uma nova assinatura.")
+    if a["status"] == "erro":
+        st.error(a["mensagem_erro"] or "Não foi possível enviar para assinatura.")
+    elif a["mensagem_erro"]:
+        st.caption(f"Última consulta: {a['mensagem_erro']}")
+    if a["link_assinatura"] and a["status"] in assinatura.STATUS_PENDENTES:
+        st.code(a["link_assinatura"], language=None)
+        if pode_enviar:
+            links_envio(numero, "", "", "", link=a["link_assinatura"])
+    cols = st.columns(2)
+    if a["status"] == "aguardando":
+        if cols[0].button("🔄 Atualizar status", use_container_width=True, key=f"ass_upd_{k}"):
+            if protegido(S.atualizar_status_assinatura, ctx.ator, a["id"], provedor, True)[0]:
+                st.rerun()
+        if pode_enviar and cols[1].button("Cancelar solicitação", use_container_width=True, key=f"ass_can_{k}"):
+            if protegido(S.cancelar_assinatura, ctx.ator, a["id"], provedor)[0]:
+                st.rerun()
+    elif a["status"] == "assinado":
+        try:
+            pdf, nome = S.pdf_assinado(ctx.ator, a["id"], provedor if provedor.configurado else None)
+            st.download_button("⬇ Baixar PDF assinado", data=pdf, file_name=nome, mime="application/pdf",
+                               type="primary", use_container_width=True, key=f"ass_pdf_{k}")
+        except (AcessoNegado, S.ErroNegocio) as exc:
+            st.caption(f"PDF assinado indisponível: {exc}")
+
+
+def _form_assinatura(ctx, vistoria_id, proprietario, provedor, chave):
+    with st.form(f"ass_form_{chave}_{vistoria_id}"):
+        st.markdown(section_html("Signatário", "Confira os dados: o link de assinatura vai para o contato abaixo."),
+                    unsafe_allow_html=True)
+        nome = st.text_input("Nome completo", proprietario.get("nome", ""))
+        a, b = st.columns(2)
+        email = a.text_input("E-mail", "", placeholder="cliente@exemplo.com")
+        tel = b.text_input("Celular (com DDD)", proprietario.get("telefone", ""))
+        canais = list(provedor.canais)
+        canal = st.radio("Enviar o link por", canais, horizontal=True, format_func=lambda c: assinatura.CANAIS.get(c, c))
+        a, b = st.columns(2)
+        enviar = a.form_submit_button("Enviar para assinatura", type="primary", use_container_width=True)
+        cancelar = b.form_submit_button("Cancelar", use_container_width=True)
+    if cancelar:
+        st.session_state.pop(f"ass_form_{chave}", None)
+        st.rerun()
+    if enviar:
+        dados = {"nome": nome, "email": email, "telefone": tel, "cpf": proprietario.get("cpf", ""), "canal": canal}
+        with st.spinner("Enviando o laudo para assinatura..."):
+            ok, aid = protegido(S.solicitar_assinatura, ctx.ator, vistoria_id, dados, provedor)
+        if ok:
+            st.session_state.pop(f"ass_form_{chave}", None)
+            ass = next((x for x in S.listar_assinaturas_vistoria(ctx.ator, vistoria_id) if x["id"] == aid), {})
+            if ass.get("status") == "erro":
+                st.session_state[f"ass_msg_{chave}"] = ("erro", ass.get("mensagem_erro") or "Erro ao enviar.")
+            else:
+                st.session_state[f"ass_msg_{chave}"] = ("ok", "Laudo enviado. O cliente receberá o link de assinatura por "
+                                                        f"{assinatura.CANAIS.get(canal, canal)}.")
+            st.rerun()
 
 
 def b64_bytes(b64):
@@ -242,6 +363,7 @@ def detalhe_vistoria(ctx, vid, voltar_para):
                                type="primary", use_container_width=True, key=f"det_pdf_{laudo['id']}")
             if pode(ctx.ator, "laudos.enviar"):
                 links_envio(v["numero"], v["veiculo_desc"], v["placa"], cli.get("telefone") or p.get("telefone"))
+    painel_assinaturas(ctx, v["id"], v["numero"], p, permitir_envio=False, chave="det")
     acoes = st.columns(2)
     if v["pode_editar"]:
         rot = "Continuar vistoria" if v["status"] in ("em_andamento", "pendente") else "Abrir para edição"
@@ -530,6 +652,7 @@ def pg_laudos(ctx, empresa_id=None):
             st.rerun()
         if pode(ctx.ator, "laudos.enviar"):
             links_envio(sel["numero"], sel["veiculo_desc"], sel["placa"], sel.get("cliente_telefone"))
+        painel_assinaturas(ctx, sel["vistoria_id"], sel["numero"], permitir_envio=False, chave=f"lau{sel['id']}")
         if pode(ctx.ator, "laudos.ver_todos") and not ctx.ator.super:
             if st.button("Gerar PDF novamente com o layout atual", use_container_width=True, key="lau_regen"):
                 if protegido(S.regenerar_laudo, ctx.ator, sel["id"], ctx.gerar_pdf)[0]:
@@ -1043,6 +1166,21 @@ def pg_integracoes(ctx):
             (st.success if r.status == "ok" else st.warning)(
                 f"Status: {r.status}. " + (r.message or ", ".join(f"{k}: {v}" for k, v in list(r.data.items())[:5])))
             S.registrar(ctx.ator, "integracao_teste", f"Teste da consulta de placa: {r.status}")
+    with st.container(border=True, key="ac_card_int_ass"):
+        cfg = ctx.assinatura_cfg
+        nome = {"clicksign": "Clicksign (API v3)", "d4sign": "D4Sign"}.get(getattr(cfg, "provider", ""), "Nenhum")
+        st.markdown(section_html("Assinatura eletrônica à distância", nome), unsafe_allow_html=True)
+        prov = assinatura.criar_provedor(cfg)
+        if prov.configurado:
+            host = cfg.base_url.split("//", 1)[-1].split("/", 1)[0]
+            st.success(f"Configurado · ambiente: {cfg.ambiente} · servidor: {host} · tempo limite: {cfg.timeout:.0f} s")
+            st.caption("Chave da API: configurada (nunca é exibida).")
+        else:
+            st.warning("Não configurado: o botão “Enviar para assinatura à distância” aparece desabilitado."
+                       + (f" Motivo: {prov.motivo or getattr(cfg, 'config_error', '')}."
+                          if (prov.motivo or getattr(cfg, "config_error", "")) else ""))
+        st.caption("Configuração nos Secrets do servidor, seção [assinatura] (provider, api_key, base_url, timeout). "
+                   "Sem webhook: o status é consultado ao abrir o laudo ou em “Atualizar status”.")
     with st.container(border=True, key="ac_card_int_db"):
         st.markdown(section_html("Banco de dados", db.descricao_banco()), unsafe_allow_html=True)
         if db.usando_postgres():

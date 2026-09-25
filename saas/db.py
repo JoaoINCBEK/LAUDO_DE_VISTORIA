@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2          # 2: tabela assinaturas_remotas
 
 # Brasil (Fortaleza/Brasília) não tem horário de verão desde 2019: UTC-3 fixo.
 # Evita horários errados em servidores configurados em UTC (ex.: Streamlit Cloud).
@@ -141,7 +141,8 @@ def _fabrica_linhas(cursor):
     return lambda valores: Linha(nomes, valores)
 
 
-_TABELAS_COM_ID = {"planos", "empresas", "usuarios", "clientes", "veiculos", "vistorias", "laudos", "emitentes", "logs"}
+_TABELAS_COM_ID = {"planos", "empresas", "usuarios", "clientes", "veiculos", "vistorias", "laudos", "emitentes", "logs",
+                   "assinaturas_remotas"}
 _RE_INSERT = re.compile(r"^\s*INSERT\s+INTO\s+(\w+)", re.I)
 
 
@@ -391,6 +392,33 @@ CREATE TABLE IF NOT EXISTS logs (
 );
 CREATE INDEX IF NOT EXISTS ix_logs_empresa ON logs(empresa_id, data_hora);
 CREATE INDEX IF NOT EXISTS ix_logs_vistoria ON logs(vistoria_id);
+
+-- Assinatura eletrônica à distância (versão 2 do esquema). Contato do signatário só mascarado:
+-- o dado completo fica no provedor. id_externo permite baixar de novo o PDF assinado.
+CREATE TABLE IF NOT EXISTS assinaturas_remotas (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    empresa_id          INTEGER NOT NULL REFERENCES empresas(id),
+    vistoria_id         INTEGER NOT NULL REFERENCES vistorias(id) ON DELETE CASCADE,
+    laudo_id            INTEGER REFERENCES laudos(id),
+    usuario_id          INTEGER REFERENCES usuarios(id),
+    provedor            TEXT NOT NULL,
+    id_externo          TEXT NOT NULL DEFAULT '',
+    documento_externo   TEXT NOT NULL DEFAULT '',
+    signatario_externo  TEXT NOT NULL DEFAULT '',
+    signatario_nome     TEXT NOT NULL DEFAULT '',
+    signatario_email    TEXT NOT NULL DEFAULT '',
+    signatario_telefone TEXT NOT NULL DEFAULT '',
+    canal               TEXT NOT NULL DEFAULT '',
+    status              TEXT NOT NULL DEFAULT 'rascunho'
+                        CHECK (status IN ('rascunho', 'aguardando', 'assinado', 'recusado', 'cancelado', 'expirado', 'erro')),
+    link_assinatura     TEXT NOT NULL DEFAULT '',
+    arquivo_assinado    TEXT NOT NULL DEFAULT '',
+    mensagem_erro       TEXT NOT NULL DEFAULT '',
+    consultado_em       TEXT,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_assinaturas_vistoria ON assinaturas_remotas(empresa_id, vistoria_id);
 """
 
 
@@ -409,11 +437,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_planos_nome_lower ON planos (lower(nome));
 
 
 TABELAS = ["meta", "planos", "empresas", "usuarios", "sessoes", "clientes", "veiculos",
-           "vistorias", "laudos", "emitentes", "logs"]
+           "vistorias", "laudos", "emitentes", "logs", "assinaturas_remotas"]
 
 
 def inicializar():
-    """Cria as tabelas (idempotente)."""
+    """Cria as tabelas (idempotente). Bancos já existentes (SQLite ou PostgreSQL) só ganham
+    as tabelas novas: CREATE TABLE IF NOT EXISTS não mexe nas que já existem."""
     with conectar() as con:
         if usando_postgres():
             con.executescript(_schema_pg())
@@ -422,6 +451,9 @@ def inicializar():
             con.executescript(SCHEMA)
         con.execute("INSERT INTO meta(chave, valor) VALUES ('schema_version', ?) ON CONFLICT(chave) DO NOTHING",
                     (str(SCHEMA_VERSION),))
+        atual = con.execute("SELECT valor FROM meta WHERE chave = 'schema_version'").fetchone()
+        if atual and str(atual[0]).isdigit() and int(atual[0]) < SCHEMA_VERSION:
+            con.execute("UPDATE meta SET valor = ? WHERE chave = 'schema_version'", (str(SCHEMA_VERSION),))
 
 
 def meta_get(chave, padrao=None):
