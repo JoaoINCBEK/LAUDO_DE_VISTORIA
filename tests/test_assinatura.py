@@ -23,6 +23,10 @@ import requests                                                   # noqa: E402
 import assinatura                                                 # noqa: E402
 from assinatura.clicksign import ProvedorClicksign                # noqa: E402
 from assinatura.fake import PDF_ASSINADO, ProvedorFake            # noqa: E402
+from assinatura.link import ProvedorLink, hash_token              # noqa: E402
+import pdf_report                                                 # noqa: E402
+from desenho import render                                        # noqa: E402
+from test_desenho import ASSINATURA, b64png                       # noqa: E402
 from saas import db, servicos as S                                # noqa: E402
 from saas.rbac import AcessoNegado                                # noqa: E402
 from test_saas import Base, dados_vistoria                        # noqa: E402
@@ -34,8 +38,14 @@ TOKEN = "TOKEN-SECRETO-123"
 
 
 class TestConfig(unittest.TestCase):
-    def test_sem_secrets_fica_desativado(self):
+    def test_sem_secrets_usa_link_do_sistema(self):
         cfg = assinatura.carregar_config({}, {})
+        self.assertEqual(cfg.provider, "link")
+        self.assertTrue(cfg.configurado)
+        self.assertIsInstance(assinatura.criar_provedor(cfg), ProvedorLink)
+
+    def test_desativado_explicito(self):
+        cfg = assinatura.carregar_config({"provider": "desativado"}, {})
         self.assertEqual(cfg.provider, "desativado")
         self.assertFalse(cfg.configurado)
         prov = assinatura.criar_provedor(cfg)
@@ -164,6 +174,76 @@ class TestFluxoFake(Base):
         (self.tmp / rel).unlink()
         with self.assertRaises(S.ErroNegocio):
             S.solicitar_assinatura(self.vist, self.vid, SIGNATARIO, self.prov)
+
+
+class TestFluxoLink(Base):
+    """Assinatura pelo link do próprio sistema: o cliente desenha e a assinatura entra no laudo."""
+    def setUp(self):
+        super().setUp()
+        self.eid, self.admin, self.vist = self.nova_empresa("Sigma")
+        self.vid, self.lid = self.vistoria_concluida(self.vist)
+        self.prov = ProvedorLink("https://app.teste")
+        self.sig = b64png(render.render_assinatura(ASSINATURA))
+        self.gerar = lambda d: pdf_report.build_pdf(d, {}, [])
+
+    def _novo_link(self):
+        aid = S.solicitar_assinatura(self.vist, self.vid, dict(SIGNATARIO, canal="whatsapp"), self.prov)
+        a = [x for x in S.listar_assinaturas_vistoria(self.vist, self.vid) if x["id"] == aid][0]
+        token = a["link_assinatura"].split("?assinar=", 1)[1]
+        return aid, a, token
+
+    def test_cliente_desenha_e_assinatura_entra_no_laudo(self):
+        aid, a, token = self._novo_link()
+        self.assertEqual(a["status"], "aguardando")
+        self.assertTrue(a["link_assinatura"].startswith("https://app.teste/?assinar="))
+        self.assertEqual(a["id_externo"], hash_token(token))          # o banco guarda só o hash
+        self.assertNotEqual(a["id_externo"], token)
+        info = S.obter_link_assinatura(token)
+        self.assertEqual((info["signatario"], info["empresa"]), ("Maria Souza", "Sigma"))
+        self.assertTrue(S.pdf_link_assinatura(token, self.gerar).startswith(b"%PDF"))
+        for ruim in ("", "token-inventado"):
+            with self.assertRaises(S.ErroNegocio):
+                S.obter_link_assinatura(ruim)
+        with self.assertRaises(S.ErroNegocio):                          # sem desenho não assina
+            S.assinar_por_link(token, None, [], self.gerar)
+
+        numero, pdf = S.assinar_por_link(token, self.sig, ASSINATURA, self.gerar, "200.1.2.3")
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        a = S.atualizar_status_assinatura(self.vist, aid, self.prov)
+        self.assertEqual(a["status"], "assinado")
+        self.assertEqual(S.pdf_assinado(self.admin, aid)[0], pdf)
+        p = S.obter_vistoria(self.admin, self.vid)["dados"]["proprietario"]
+        self.assertEqual(p["assinatura"], self.sig)                   # embaixo de "Proprietário" no PDF
+        self.assertEqual(p["assinatura_remota"]["ip"], "200.1.2.3")
+        self.assertEqual(S.pdf_do_laudo(self.admin, self.lid)[0], pdf)  # o laudo atual já vem assinado
+        with self.assertRaises(S.ErroNegocio):                          # o link não vale uma 2ª vez
+            S.assinar_por_link(token, self.sig, ASSINATURA, self.gerar)
+        log = [l for l in S.listar_logs(self.admin) if l["acao"] == "assinatura_assinado"]
+        self.assertIn("200.1.2.3", log[0]["descricao"])
+
+    def test_link_cancelado_expirado_ou_laudo_substituido(self):
+        aid, _, token = self._novo_link()
+        S.cancelar_assinatura(self.vist, aid, self.prov)
+        with self.assertRaises(S.ErroNegocio):
+            S.obter_link_assinatura(token)
+
+        aid, _, token = self._novo_link()
+        with db.conectar() as con:
+            con.execute("UPDATE assinaturas_remotas SET created_at = '2000-01-01 00:00:00' WHERE id = ?", (aid,))
+        with self.assertRaises(S.ErroNegocio):
+            S.assinar_por_link(token, self.sig, ASSINATURA, self.gerar)
+        self.assertEqual(S.atualizar_status_assinatura(self.vist, aid, self.prov)["status"], "expirado")
+
+        aid, _, token = self._novo_link()
+        S.finalizar_vistoria(self.vist, self.vid, dados_vistoria(), b"%PDF-1.4 nova versao")
+        with self.assertRaises(S.ErroNegocio):
+            S.assinar_por_link(token, self.sig, ASSINATURA, self.gerar)
+
+    def test_empresa_bloqueada_nao_assina(self):
+        _, _, token = self._novo_link()
+        S.definir_status_empresa(self.su, self.eid, "bloqueada")
+        with self.assertRaises(S.ErroNegocio):
+            S.obter_link_assinatura(token)
 
 
 class TestIsolamentoAssinaturas(Base):

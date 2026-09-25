@@ -1,7 +1,7 @@
 """Assinatura eletrônica à distância (desacoplada do Streamlit e do banco).
 
     cfg = carregar_config(secrets, os.environ)
-    provedor = criar_provedor(cfg)          # Clicksign / desativado / fake (só testes)
+    provedor = criar_provedor(cfg)          # link do sistema (padrão) / Clicksign / desativado / fake (só testes)
 
 O fluxo com o banco (isolamento por empresa, auditoria) fica em saas/servicos.py.
 """
@@ -14,6 +14,9 @@ from .desativado import ProvedorDesativado
 def criar_provedor(cfg):
     if cfg is None or not cfg.configurado:
         return ProvedorDesativado(getattr(cfg, "config_error", "") if cfg else "")
+    if cfg.provider == "link":
+        from .link import ProvedorLink
+        return ProvedorLink(cfg.base_url)
     if cfg.provider == "clicksign":
         from .clicksign import ProvedorClicksign
         return ProvedorClicksign(cfg)

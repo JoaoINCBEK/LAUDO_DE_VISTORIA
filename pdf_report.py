@@ -442,7 +442,13 @@ def build_pdf(c, labels=None, warnings=None):
         if not data.get("assinatura"):
             return ""
         try:
-            return fit_image(data["assinatura"], SIGNATURE_MAX_W, SIGNATURE_MAX_H)
+            img = fit_image(data["assinatura"], SIGNATURE_MAX_W, SIGNATURE_MAX_H)
+            remota = data.get("assinatura_remota") or {}
+            dh = str(remota.get("data_hora") or "")
+            if len(dh) >= 16:      # assinada pelo link, no celular do cliente ("AAAA-MM-DD HH:MM:SS")
+                quando = f"{dh[8:10]}/{dh[5:7]}/{dh[:4]} às {dh[11:16]}"
+                return [img, Paragraph(f"Assinado eletronicamente à distância em {quando}", ss["SmTight"])]
+            return img
         except Exception as exc:
             warnings.append(f"Assinatura do {who}: {type(exc).__name__}: {exc}")
             return ""

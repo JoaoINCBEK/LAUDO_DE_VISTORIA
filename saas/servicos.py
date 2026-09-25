@@ -1165,6 +1165,11 @@ def atualizar_status_assinatura(ator, assinatura_id, provedor, forcar=False):
     status. Ao ficar 'assinado', já baixa e arquiva o PDF assinado. Devolve a solicitação."""
     from assinatura import STATUS, ErroProvedor
     a = _obter_assinatura(ator, assinatura_id)
+    if a["provedor"] == "link":      # o status muda quando o cliente assina: não há o que consultar
+        if a["status"] == "aguardando" and _link_expirado(a):
+            _atualizar_assinatura(a["id"], status="expirado")
+            a = _obter_assinatura(ator, assinatura_id)
+        return a
     falta_arquivo = a["status"] == "assinado" and not a["arquivo_assinado"]
     if (a["status"] != "aguardando" and not falta_arquivo) or not a["id_externo"]:
         return a
@@ -1235,6 +1240,8 @@ def pdf_assinado(ator, assinatura_id, provedor=None):
         raise ErroNegocio("O documento ainda não foi assinado.")
     rel = a["arquivo_assinado"]
     if not rel or not caminho_pdf(rel).exists():
+        if a["provedor"] == "link":
+            raise ErroNegocio("PDF assinado não encontrado no servidor. O laudo atual (em Laudos) já traz a assinatura.")
         if provedor is None:
             raise ErroNegocio("PDF assinado não encontrado no servidor.")
         rel = salvar_documento_assinado(ator, assinatura_id, provedor)
@@ -1249,7 +1256,7 @@ def cancelar_assinatura(ator, assinatura_id, provedor):
     a = _obter_assinatura(ator, assinatura_id)
     if a["status"] not in ("rascunho", "aguardando", "erro"):
         raise ErroNegocio("Esta solicitação não está pendente.")
-    if a["id_externo"] and a["status"] != "erro":
+    if a["id_externo"] and a["status"] != "erro" and a["provedor"] != "link":   # link: só invalida no banco
         if not provedor.configurado or provedor.nome != a["provedor"]:
             raise ErroNegocio("O provedor desta assinatura não está configurado: cancele pelo painel do provedor.")
         try:
@@ -1274,6 +1281,88 @@ def cancelar_assinaturas_substituidas(ator, vistoria_id, provedor):
             except (AcessoNegado, ErroNegocio):
                 pass
     return n
+
+
+# ---------------------------------------------------------------------------
+# Assinatura pelo link do sistema. Página pública, SEM login: o token aleatório do link é a
+# credencial (o banco guarda só o hash) e dá acesso apenas àquele laudo, enquanto estiver
+# aguardando, dentro da validade e com o laudo ainda sendo a versão atual.
+# ---------------------------------------------------------------------------
+def _link_expirado(a):
+    from assinatura.link import VALIDADE_DIAS
+    limite = (db.agora_dt() - timedelta(days=VALIDADE_DIAS)).strftime("%Y-%m-%d %H:%M:%S")
+    return a["created_at"] < limite
+
+
+def _assinatura_por_token(con, token):
+    """(solicitação, vistoria, laudo) de um link ainda válido; senão ErroNegocio com o motivo."""
+    from assinatura.link import hash_token
+    a = con.execute("SELECT * FROM assinaturas_remotas WHERE provedor = 'link' AND id_externo = ?",
+                    (hash_token(token),)).fetchone() if token else None
+    if not a:
+        raise ErroNegocio("Link de assinatura inválido. Confira o link recebido ou peça um novo à empresa.")
+    if a["status"] == "assinado":
+        raise ErroNegocio("Este laudo já foi assinado. Obrigado!")
+    if a["status"] != "aguardando" or _link_expirado(a):
+        raise ErroNegocio("Este link de assinatura não é mais válido (cancelado ou expirado). Peça um novo à empresa.")
+    l = con.execute("SELECT * FROM laudos WHERE id = ?", (a["laudo_id"],)).fetchone()
+    if not l or l["status"] != "emitido":
+        raise ErroNegocio("O laudo foi atualizado depois do envio deste link. Peça um novo link à empresa.")
+    e = con.execute("SELECT nome, status FROM empresas WHERE id = ?", (a["empresa_id"],)).fetchone()
+    if not e or e["status"] != "ativa":
+        raise ErroNegocio("Assinatura indisponível no momento. Fale com a empresa que fez a vistoria.")
+    v = con.execute("SELECT * FROM vistorias WHERE id = ? AND empresa_id = ?", (a["vistoria_id"], a["empresa_id"])).fetchone()
+    return a, v, l, e
+
+
+def obter_link_assinatura(token):
+    """O que a página pública mostra ao cliente antes de assinar."""
+    with db.conectar() as con:
+        a, v, l, e = _assinatura_por_token(con, token)
+    return {"numero": v["numero"], "placa": v["placa"], "veiculo": v["veiculo_desc"],
+            "signatario": a["signatario_nome"], "empresa": e["nome"]}
+
+
+def pdf_link_assinatura(token, gerar_pdf):
+    """PDF do laudo para o cliente conferir antes de assinar."""
+    with db.conectar() as con:
+        a, v, l, e = _assinatura_por_token(con, token)
+    path = caminho_pdf(l["arquivo_pdf"])
+    return path.read_bytes() if path.exists() else gerar_pdf(json.loads(v["dados"] or "{}"))
+
+
+def assinar_por_link(token, assinatura_png_b64, tracos, gerar_pdf, ip=""):
+    """O cliente desenhou e confirmou: a assinatura entra no laudo (embaixo de "Proprietário"),
+    o PDF é refeito e arquivado e a solicitação fica 'assinado'. Devolve (número, PDF assinado)."""
+    if not assinatura_png_b64:
+        raise ErroNegocio("Desenhe sua assinatura no quadro antes de confirmar.")
+    agora = db.agora()
+    with db.conectar() as con:
+        a, v, l, e = _assinatura_por_token(con, token)
+    dados = json.loads(v["dados"] or "{}")
+    p = dict(dados.get("proprietario") or {})
+    p.update(assinatura=assinatura_png_b64, assinatura_tracos=tracos or [],
+             assinatura_remota={"nome": a["signatario_nome"], "data_hora": agora, "ip": ip or ""})
+    dados["proprietario"] = p
+    pdf = gerar_pdf(dados)                   # fora da transação: não segura o banco enquanto monta o PDF
+    base = re.sub(r"[^A-Za-z0-9_-]", "_", v["numero"])
+    rel = (Path("pdfs") / f"emp_{a['empresa_id']}" / f"{base}_laudo{l['id']}_assinado.pdf").as_posix()
+    with db.conectar() as con:
+        # reserva a solicitação: dois envios ao mesmo tempo não assinam duas vezes
+        if con.execute("UPDATE assinaturas_remotas SET status = 'assinado', arquivo_assinado = ?, mensagem_erro = '', "
+                       "consultado_em = ?, updated_at = ? WHERE id = ? AND status = 'aguardando'",
+                       (rel, agora, agora, a["id"])).rowcount != 1:
+            raise ErroNegocio("Este laudo já foi assinado. Obrigado!")
+        if con.execute("SELECT status FROM laudos WHERE id = ?", (l["id"],)).fetchone()["status"] != "emitido":
+            raise ErroNegocio("O laudo foi atualizado depois do envio deste link. Peça um novo link à empresa.")
+        con.execute("UPDATE vistorias SET dados = ?, updated_at = ? WHERE id = ?",
+                    (json.dumps(dados, ensure_ascii=False), agora, v["id"]))
+        registrar(None, "assinatura_assinado", f"Laudo {v['numero']}: assinado à distância por {a['signatario_nome']} "
+                  f"(link do sistema{', IP ' + ip if ip else ''})", vistoria_id=v["id"], empresa_id=a["empresa_id"], con=con)
+        caminho_pdf(rel).parent.mkdir(parents=True, exist_ok=True)
+        caminho_pdf(rel).write_bytes(pdf)                  # cópia fiel do que foi assinado
+        caminho_pdf(l["arquivo_pdf"]).write_bytes(pdf)     # o laudo atual passa a trazer a assinatura
+    return v["numero"], pdf
 
 
 # ---------------------------------------------------------------------------

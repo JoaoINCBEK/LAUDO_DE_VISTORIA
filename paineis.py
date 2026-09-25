@@ -225,12 +225,14 @@ def painel_assinaturas(ctx, vistoria_id, numero, proprietario=None, permitir_env
                 pass
     with st.container(border=True, key=f"ac_card_ass_{chave}"):
         st.markdown(section_html("Assinatura eletrônica à distância",
+                                 "Envie o link ao cliente: ele confere o laudo e desenha a assinatura no celular."
+                                 if provedor.nome == "link" else
                                  "O cliente recebe o link do provedor e assina pelo celular."), unsafe_allow_html=True)
         msg = st.session_state.pop(f"ass_msg_{chave}", None)
         if msg:
             (st.success if msg[0] == "ok" else st.error)(msg[1])
         for a in lista[:5]:
-            _linha_assinatura(ctx, a, numero, provedor, pode_enviar, chave)
+            _linha_assinatura(ctx, a, numero, provedor, pode_enviar, chave, (proprietario or {}).get("telefone", ""))
         if not permitir_envio or not pode_enviar:
             return
         pendente = any(a["status"] in assinatura.STATUS_PENDENTES and not a["versao_anterior"] for a in lista)
@@ -250,14 +252,17 @@ def painel_assinaturas(ctx, vistoria_id, numero, proprietario=None, permitir_env
         _form_assinatura(ctx, vistoria_id, proprietario or {}, provedor, chave)
 
 
-def _linha_assinatura(ctx, a, numero, provedor, pode_enviar, chave):
+def _linha_assinatura(ctx, a, numero, provedor, pode_enviar, chave, telefone=""):
     k = f"{chave}_{a['id']}"
     contato = a["signatario_email"] if a["canal"] == "email" else a["signatario_telefone"]
     canal = assinatura.CANAIS.get(a["canal"], a["canal"])
+    link = a["provedor"] == "link"
+    quando = ((f" · assinado em {db.br(a['consultado_em'])}" if a["status"] == "assinado" else "") if link
+              else (f" · consultado às {db.br(a['consultado_em'])[11:]}" if a["consultado_em"] else ""))
     st.markdown(f"{ICONE_ASSINATURA.get(a['status'], '•')} <b>{S.STATUS_ASSINATURA.get(a['status'], a['status'])}</b> · "
                 f"{escape(a['signatario_nome'] or '—')} · {canal} {escape(contato or '')}<br>"
-                f"<span style='color:#6B7785;font-size:13px'>Enviado em {db.br(a['created_at'])} · provedor "
-                f"{escape(a['provedor'])}" + (f" · consultado às {db.br(a['consultado_em'])[11:]}" if a["consultado_em"] else "")
+                f"<span style='color:#6B7785;font-size:13px'>Enviado em {db.br(a['created_at'])} · "
+                + ("link do sistema" if link else f"provedor {escape(a['provedor'])}") + quando
                 + "</span>", unsafe_allow_html=True)
     if a["versao_anterior"]:
         st.caption("⚠ Referente a versão anterior do laudo. Envie a versão atual para uma nova assinatura.")
@@ -268,7 +273,7 @@ def _linha_assinatura(ctx, a, numero, provedor, pode_enviar, chave):
     if a["link_assinatura"] and a["status"] in assinatura.STATUS_PENDENTES:
         st.code(a["link_assinatura"], language=None)
         if pode_enviar:
-            links_envio(numero, "", "", "", link=a["link_assinatura"])
+            links_envio(numero, "", "", telefone if a["canal"] == "whatsapp" else "", link=a["link_assinatura"])
     cols = st.columns(2)
     if a["status"] == "aguardando":
         if cols[0].button("🔄 Atualizar status", use_container_width=True, key=f"ass_upd_{k}"):
@@ -297,7 +302,8 @@ def _form_assinatura(ctx, vistoria_id, proprietario, provedor, chave):
         canais = list(provedor.canais)
         canal = st.radio("Enviar o link por", canais, horizontal=True, format_func=lambda c: assinatura.CANAIS.get(c, c))
         a, b = st.columns(2)
-        enviar = a.form_submit_button("Enviar para assinatura", type="primary", use_container_width=True)
+        enviar = a.form_submit_button("Gerar link de assinatura" if provedor.nome == "link" else "Enviar para assinatura",
+                                      type="primary", use_container_width=True)
         cancelar = b.form_submit_button("Cancelar", use_container_width=True)
     if cancelar:
         st.session_state.pop(f"ass_form_{chave}", None)
@@ -311,6 +317,9 @@ def _form_assinatura(ctx, vistoria_id, proprietario, provedor, chave):
             ass = next((x for x in S.listar_assinaturas_vistoria(ctx.ator, vistoria_id) if x["id"] == aid), {})
             if ass.get("status") == "erro":
                 st.session_state[f"ass_msg_{chave}"] = ("erro", ass.get("mensagem_erro") or "Erro ao enviar.")
+            elif provedor.nome == "link":
+                st.session_state[f"ass_msg_{chave}"] = ("ok", "Link de assinatura criado. Envie ao cliente pelo botão "
+                                                        f"de {assinatura.CANAIS.get(canal, canal)} abaixo (vale 7 dias).")
             else:
                 st.session_state[f"ass_msg_{chave}"] = ("ok", "Laudo enviado. O cliente receberá o link de assinatura por "
                                                         f"{assinatura.CANAIS.get(canal, canal)}.")

@@ -93,6 +93,26 @@ class FluxoApp(unittest.TestCase):
         at.text_input[1].input(nova)
         return self.botao(at, "Salvar e continuar")
 
+    def pagina_publica_de_assinatura(self, vist, vid):
+        """O cliente abre o link (sem login): vê o laudo e o quadro de assinatura."""
+        from assinatura.link import ProvedorLink
+        S.solicitar_assinatura(vist, vid, {"nome": "Maria Souza", "telefone": "85999990000", "canal": "whatsapp"},
+                               ProvedorLink("http://localhost:8501"))
+        link = S.listar_assinaturas_vistoria(vist, vid)[0]["link_assinatura"]
+        at = AppTest.from_file(str(RAIZ / "app.py"), default_timeout=90)
+        at.query_params["assinar"] = link.split("?assinar=", 1)[1]
+        at.run()
+        self.ok(at, "página pública de assinatura")
+        self.assertFalse(any(b.label == "Entrar" for b in at.button), "a página pública não pode pedir login")
+        conf = next((b for b in at.button if b.label == "Confirmar assinatura"), None)
+        self.assertIsNotNone(conf, [b.label for b in at.button])
+        self.assertTrue(conf.disabled)                    # só libera depois de desenhar e concordar
+        at = AppTest.from_file(str(RAIZ / "app.py"), default_timeout=90)
+        at.query_params["assinar"] = "link-falso"
+        at.run()
+        self.ok(at, "link inválido")
+        self.assertTrue(any("inválido" in m.value for m in at.markdown))
+
     # -- teste --------------------------------------------------------------
     def test_fluxo_completo(self):
         # 1) Super Admin: cria empresa e o primeiro administrador
@@ -150,14 +170,15 @@ class FluxoApp(unittest.TestCase):
         at = self.botao(at, "✓ Finalizar inspeção e preparar PDF", recarregar=False)
         self.assertTrue(any("finalizada" in s.value for s in at.success), [e.value for e in at.error])
         self.assertTrue(at.session_state["pdf"].startswith(b"%PDF"))
-        # assinatura à distância sem Secrets: botão aparece desabilitado e o app segue normal
+        # assinatura à distância sem Secrets: link do próprio sistema, já disponível
         env = next((b for b in at.button if b.label == "Enviar para assinatura à distância"), None)
         self.assertIsNotNone(env, [b.label for b in at.button])
-        self.assertTrue(env.disabled)
+        self.assertFalse(env.disabled)
         vist = at.session_state["user"]
         minhas = S.listar_vistorias(vist)
         self.assertEqual(len(minhas), 1)
         self.assertEqual(minhas[0]["status"], "concluida")
+        self.pagina_publica_de_assinatura(vist, minhas[0]["id"])
         self.assertEqual(minhas[0]["vistoriador_nome"], "João Silva")
 
         # 4) Administrador vê a vistoria, o laudo (PDF), o veículo e o cliente

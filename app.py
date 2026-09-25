@@ -794,7 +794,69 @@ def get_assinatura_config():
     except Exception as exc:
         # Só o tipo do erro: a mensagem do parser pode conter trechos do arquivo.
         err = f"Falha ao ler os Secrets ({type(exc).__name__})"
-    return assinatura.carregar_config(secret, os.environ, secrets_error=err)
+    cfg = assinatura.carregar_config(secret, os.environ, secrets_error=err)
+    if cfg.provider == "link" and not cfg.base_url:
+        cfg.base_url = app_base_url()
+    return cfg
+
+def app_base_url():
+    """Endereço do app como o navegador o acessou (para montar o link de assinatura).
+    Atrás de proxy, vale o que o proxy informar; [assinatura] base_url nos Secrets tem prioridade."""
+    try:
+        h = st.context.headers
+        host = (h.get("X-Forwarded-Host") or h.get("Host") or "").split(",")[0].strip()
+        proto = (h.get("X-Forwarded-Proto") or "").split(",")[0].strip()
+    except Exception:
+        return ""
+    if not host:
+        return ""
+    local = host.startswith(("localhost", "127.0.0.1", "[::1]"))
+    return f"{proto or ('http' if local else 'https')}://{host}"
+
+def tela_assinatura_publica(token):
+    """Página que o cliente abre pelo link de assinatura (sem login): confere o laudo,
+    desenha a assinatura e confirma. A assinatura vai para o PDF embaixo de "Proprietário"."""
+    st.markdown(brand_html(), unsafe_allow_html=True)
+    feito = st.session_state.get("_link_assinado")
+    if feito and feito[0] == token:
+        st.markdown(hero_html(f"Laudo {feito[1]} assinado", "Obrigado! Sua assinatura foi registrada no laudo."),
+                    unsafe_allow_html=True)
+        st.download_button("⬇ Baixar o laudo assinado (PDF)", data=feito[2], file_name=f"{feito[1]}.pdf",
+                           mime="application/pdf", type="primary", use_container_width=True)
+        return
+    try:
+        info = S.obter_link_assinatura(token)
+        pdf_laudo = S.pdf_link_assinatura(token, pdf_bytes)
+    except S.ErroNegocio as exc:
+        st.markdown(hero_html("Assinatura do laudo", str(exc)), unsafe_allow_html=True)
+        return
+    st.markdown(hero_html(f"Laudo {info['numero']}", f"{info['empresa']} enviou este laudo de vistoria para você assinar.",
+                          [info["veiculo"], f"Placa {info['placa']}" if info["placa"] else ""]), unsafe_allow_html=True)
+    st.write("**1. Confira o laudo**")
+    st.download_button("📄 Abrir o laudo (PDF)", data=pdf_laudo, file_name=f"{info['numero']}.pdf",
+                       mime="application/pdf", use_container_width=True)
+    st.write(f"**2. Assine no quadro abaixo** — {info['signatario']}")
+    tracos = st.session_state.get("_link_tracos") or []
+    novos = desenho.area_desenho(modo="assinatura", versao="link", key="sig_link", tracos=tracos,
+                                 cor=desenho_render.COR_ASSINATURA, espessura=0.012)
+    if novos is not None:
+        st.session_state["_link_tracos"] = tracos = novos
+    concordo = st.checkbox("Li o laudo e concordo com as informações registradas.", key="link_concordo")
+    if not tracos:
+        st.caption("Desenhe sua assinatura com o dedo (ou o mouse) no quadro acima.")
+    if st.button("Confirmar assinatura", type="primary", use_container_width=True,
+                 disabled=not (tracos and concordo), key="link_confirmar"):
+        img = desenho_render.render_assinatura(tracos)
+        try:
+            with st.spinner("Registrando sua assinatura no laudo..."):
+                numero, pdf = S.assinar_por_link(token, b64_pil(img) if img is not None else None, tracos,
+                                                 pdf_bytes, client_ip())
+        except S.ErroNegocio as exc:
+            st.error(str(exc))
+        else:
+            st.session_state["_link_assinado"] = (token, numero, pdf)
+            st.session_state.pop("_link_tracos", None)
+            st.rerun()
 
 def plate_lookup_ui(v, placa_antes):
     """Consulta OPCIONAL pela placa. Só preenche campos vazios (ou preenchidos antes
@@ -1586,7 +1648,9 @@ def _precisa_trocar_senha():
     st.session_state._senha_ok = not precisa
     return precisa
 
-if st.session_state.user is None:
+if st.query_params.get("assinar"):
+    tela_assinatura_publica(st.query_params.get("assinar"))   # link enviado ao cliente: não exige login
+elif st.session_state.user is None:
     login_screen()
 elif _precisa_trocar_senha():
     def _senha_trocada():

@@ -2,25 +2,30 @@
 
 Secrets (.streamlit/secrets.toml ou Secrets do Streamlit Cloud):
     [assinatura]
+    provider = "link"                                    # padrão: link do próprio sistema
+    base_url = "https://meuapp.streamlit.app"            # opcional: endereço do app usado no link
+                                                         # (sem ele, vem do endereço acessado)
+
+    [assinatura]
     provider = "clicksign"                               # ou "desativado"
     api_key  = "..."                                     # token de acesso da API
     base_url = "https://sandbox.clicksign.com/api/v3"    # produção: https://app.clicksign.com/api/v3
     timeout  = 20
 
 Sem a seção: variáveis ASSINATURA_PROVIDER / ASSINATURA_API_KEY / ASSINATURA_BASE_URL /
-ASSINATURA_TIMEOUT. Sem nada disso: provedor "desativado" (o app funciona normalmente).
+ASSINATURA_TIMEOUT. Sem nada disso: provedor "link" (assinatura desenhada pelo link do sistema).
 """
 import os
 from dataclasses import dataclass, field
 from typing import Optional
 
-PROVEDORES = ("clicksign", "d4sign", "desativado", "fake")
+PROVEDORES = ("link", "clicksign", "d4sign", "desativado", "fake")
 URL_PADRAO = {"clicksign": "https://sandbox.clicksign.com/api/v3"}   # padrão seguro: sandbox
 
 
 @dataclass
 class Config:
-    provider: str = "desativado"
+    provider: str = "link"
     api_key: str = field(default="", repr=False)      # repr=False: não aparece em logs/prints
     base_url: str = ""
     timeout: float = 20.0
@@ -28,7 +33,7 @@ class Config:
 
     @property
     def configurado(self):
-        if self.provider == "fake":
+        if self.provider in ("fake", "link"):       # não dependem de chave de API
             return True
         return self.provider not in ("desativado", "") and bool(self.api_key) and not self.config_error
 
@@ -40,7 +45,7 @@ class Config:
 def carregar_config(secrets: Optional[dict] = None, environ=None, secrets_error: str = "") -> Config:
     s = dict(secrets or {})
     env = os.environ if environ is None else environ
-    provider = str(s.get("provider") or env.get("ASSINATURA_PROVIDER") or "desativado").strip().lower()
+    provider = str(s.get("provider") or env.get("ASSINATURA_PROVIDER") or "link").strip().lower()
     api_key = str(s.get("api_key") or env.get("ASSINATURA_API_KEY") or "").strip()
     base_url = str(s.get("base_url") or env.get("ASSINATURA_BASE_URL") or URL_PADRAO.get(provider, "")).strip()
     try:

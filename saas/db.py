@@ -154,6 +154,7 @@ def _sql_pg(sql):
 class _CursorPG:
     def __init__(self, cur, lastrowid=None):
         self._cur, self.lastrowid = cur, lastrowid
+        self.rowcount = cur.rowcount
 
     def fetchone(self):
         return self._cur.fetchone() if self._cur.description else None
