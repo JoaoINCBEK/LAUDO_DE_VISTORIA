@@ -7,7 +7,7 @@ from PIL import Image, ImageDraw, ImageOps
 from streamlit.errors import StreamlitAPIException
 import pdf_report, placa_api
 import os
-from saas import db as sdb, migracao, rbac, servicos as S
+from saas import db as sdb, migracao, rbac, seguranca, servicos as S
 import paineis
 import assinatura
 import desenho
@@ -278,19 +278,70 @@ def client_ip():
     except Exception:
         return ""
 
-# Sessões agora ficam no banco (saas.servicos): token aleatório na URL, só o hash no banco,
-# validade máxima, revogação ao sair / bloquear / desativar / redefinir acesso.
+# Sessões ficam no banco (saas.servicos): token aleatório, só o hash no banco, validade máxima,
+# revogação ao sair / bloquear / desativar / redefinir acesso.
+# O token fica num COOKIE do navegador (não mais na URL: link copiado, print ou histórico não
+# entregam o login). Links antigos com ?ac_token= ainda entram uma vez e o parâmetro é apagado.
 # st.session_state.user passa a ser um saas.servicos.Ator (id, empresa_id, perfil, nome, login).
+COOKIE_TOKEN = "ac_token"
+REVALIDAR_SESSAO_S = 45   # revalida no banco no máximo a cada 45 s (antes: a cada clique)
+
+def session_token():
+    return st.session_state.get("_ac_token")
+
+def _cookie_token():
+    try:
+        return st.context.cookies.get(COOKIE_TOKEN) or None
+    except Exception:
+        return None
+
 def create_login_session(user):
     token = S.criar_sessao(user)
-    st.query_params["ac_token"] = token
+    st.session_state._ac_token = token
+    st.session_state._sessao_ok_t = time.time()
+    st.session_state.pop("_senha_ok", None)
     return token
 
 def restore_login_session():
-    token = st.query_params.get("ac_token")
+    ss = st.session_state
+    if "_ac_token" not in ss:
+        # 1ª execução desta aba: token do cookie ou de um link antigo (?ac_token=), que sai da URL.
+        candidatos = [_cookie_token(), st.query_params.get("ac_token")]
+        if "ac_token" in st.query_params:
+            del st.query_params["ac_token"]
+        ss._ac_token = None
+        for tok in candidatos:
+            ator = S.validar_sessao(tok, client_ip()) if tok else None
+            if ator is not None:
+                ss._ac_token, ss._sessao_ok_t = tok, time.time()
+                return ator
+        return None
+    token = session_token()
     if not token:
         return None
-    return S.validar_sessao(token, client_ip())
+    ator = S.validar_sessao(token, client_ip())
+    if ator is not None:
+        ss._sessao_ok_t = time.time()
+    return ator
+
+def cookie_sync():
+    """Grava/apaga o cookie do login no navegador quando ele difere do token desta sessão.
+    (O Streamlit só lê os cookies ao abrir a página; por isso, depois de gravar, o iframe
+    continua sendo desenhado igual até o próximo carregamento — sem custo extra.)"""
+    token = session_token()
+    if (token or None) == _cookie_token():
+        return
+    if token:
+        valor, idade = token, seguranca.SESSAO_DIAS * 86400
+    else:
+        valor, idade = "", 0
+    components.html(
+        "<script>(function(){ try { var w = window.parent;"
+        " var sec = w.location.protocol === 'https:' ? '; Secure' : '';"
+        f" w.document.cookie = '{COOKIE_TOKEN}=' + {json.dumps(valor)} + '; Path=/; Max-Age={idade}; SameSite=Lax' + sec;"
+        " } catch (e) {} })();</script>",
+        height=0,
+    )
 
 def sync_vistoria_db(inspection, force=False):
     """Guarda o andamento da vistoria no banco (para continuar depois / o admin acompanhar).
@@ -309,11 +360,20 @@ def sync_vistoria_db(inspection, force=False):
     except Exception:
         pass
 
-def save_current_state():
+def save_current_state(leve=False):
+    """Grava o rascunho (para recarregar a página sem perder nada).
+    leve=True: toques rápidos (SIM/NÃO, pneus, combustível) gravam no máximo a cada 10 s na
+    mesma etapa — o rascunho inteiro (com as fotos) pesava em cada clique. A troca de etapa
+    e as fotos sempre gravam na hora."""
     user = st.session_state.get("user")
-    token = st.query_params.get("ac_token")
+    token = session_token()
     if not user or not token:
         return
+    ss = st.session_state
+    step = ss.get("step", 0)
+    if leve and ss.get("_draft_step") == step and time.time() - ss.get("_draft_t", 0) < 10:
+        return
+    ss["_draft_step"], ss["_draft_t"] = step, time.time()
     inspection = st.session_state.get("inspection")
     if inspection is None:
         inspection = new_inspection()
@@ -327,7 +387,7 @@ def save_current_state():
     sync_vistoria_db(inspection)
 
 def load_current_state(user):
-    token = st.query_params.get("ac_token")
+    token = session_token()
     if not token:
         return False
     data = load_json(draft_path(token), {})
@@ -341,7 +401,9 @@ def load_current_state(user):
     return True
 
 def clear_login_session():
-    token = st.query_params.get("ac_token")
+    token = session_token()
+    st.session_state._ac_token = None      # o cookie_sync() apaga o cookie no navegador
+    st.session_state.pop("_senha_ok", None)
     if token:
         try:
             S.encerrar_sessao(token, st.session_state.get("user"))
@@ -383,9 +445,11 @@ preparar_banco()
 if "user" not in st.session_state:
     st.session_state.user = restore_login_session()
     st.session_state._restored_state = False
-elif st.session_state.user is not None:
-    # Revalida a sessão A CADA interação: usuário desativado, empresa bloqueada, acesso
-    # redefinido ou sessão expirada perdem o acesso na hora (não só ao recarregar).
+elif (st.session_state.user is not None
+      and time.time() - st.session_state.get("_sessao_ok_t", 0) >= REVALIDAR_SESSAO_S):
+    # Revalida a sessão no banco (no máximo a cada REVALIDAR_SESSAO_S): usuário desativado,
+    # empresa bloqueada, acesso redefinido ou sessão expirada perdem o acesso em segundos,
+    # sem pagar 5-6 consultas ao banco em cada clique.
     _ator = restore_login_session()
     if _ator is None:
         st.session_state.user = None
@@ -637,6 +701,14 @@ def topbar(title,subtitle):
     progress=st.session_state.step/len(STEPS)
     st.markdown(hero_html(title, subtitle, [f'Vistoria {c["numero"]}', st.session_state.user.nome, f'{st.session_state.step} de {len(STEPS)}'], progress), unsafe_allow_html=True)
 
+def rerun_etapa():
+    """Dentro de um @st.fragment: redesenha só a etapa atual (sem rodar o app inteiro, que é
+    o que deixava os botões lentos). Fora de um fragmento, cai no rerun completo."""
+    try:
+        st.rerun(scope="fragment")
+    except StreamlitAPIException:
+        st.rerun()
+
 def nav(fragment=False):
     with st.container(key="ac_nav"):
         x,y=st.columns([1,1])
@@ -822,7 +894,7 @@ def fuel():
     for col,(lab,pct) in zip(cols,FUEL_LEVELS):
         with col:
             if st.button(f"{lab}  \n{pct}%",key="fuel_"+lab,use_container_width=True,type="primary" if f["nivel"]==lab else "secondary"):
-                f["nivel"]=lab; f["percentual"]=pct; save_current_state(); st.rerun()
+                f["nivel"]=lab; f["percentual"]=pct; save_current_state(leve=True); rerun_etapa()
     f["percentual"]=st.slider("Percentual exato",0,100,int(f["percentual"]),5);
     nav(fragment=True)
 
@@ -843,11 +915,11 @@ def key_documents():
         st.markdown(section_html("Chave e documentos", "Chave principal, chave reserva, manual e documentos em uma única foto."), unsafe_allow_html=True)
 
         if kd.get("foto"):
-            st.image(pil_b64(kd["foto"]), use_container_width=True)
+            st.image(thumb_bytes(kd["foto"], 900), use_container_width=True)
             if st.button("Remover foto", key="remove_kd_unica", use_container_width=True):
                 kd["foto"]=None
                 save_current_state()
-                st.rerun()
+                rerun_etapa()
         else:
             src=None
             if usar_cam:
@@ -859,7 +931,7 @@ def key_documents():
                     kd["foto"]=b64_image(src)
                     audit("foto_adicionada", "adicionou foto: chave e documentos")
                     save_current_state()
-                    st.rerun()
+                    rerun_etapa()
                 except Exception:
                     st.error("Não foi possível salvar a foto.")
 
@@ -868,11 +940,11 @@ def key_documents():
     for k, val in [(k, x) for k, x in kd.items() if k != "foto" and x]:
         with st.container(border=True, key="ac_card_kd_"+k):
             st.markdown(section_html(KEY_DOC_LABELS.get(k, k)), unsafe_allow_html=True)
-            st.image(pil_b64(val), use_container_width=True)
+            st.image(thumb_bytes(val, 900), use_container_width=True)
             if st.button("Remover foto", key="remove_kd_"+k, use_container_width=True):
                 kd[k] = None
                 save_current_state()
-                st.rerun()
+                rerun_etapa()
 
     # Observação opcional (vazia = nada aparece no PDF).
     c["chave_documentos_obs"] = st.text_area("Observação (opcional)", c.get("Alguma_obs", ""),
@@ -894,7 +966,7 @@ def accessories():
             for col,opt,label in zip(cc[:3],["sim","nao","na"],["✓ Sim","✕ Não","N/A"]):
                 with col:
                     if st.button(label,key=f"acc_{i}_{opt}",use_container_width=True,type="primary" if it["status"]==opt else "secondary"):
-                        it["status"]=opt; save_current_state(); st.rerun()
+                        it["status"]=opt; save_current_state(leve=True); rerun_etapa()
             it["obs"]=cc[3].text_input("Observação",it["obs"],key=f"accobs_{i}",label_visibility="collapsed",placeholder="Observação opcional")
     nav(fragment=True)
 
@@ -919,8 +991,8 @@ def tires():
                     type="primary" if first_it.get("estado") == opt else "secondary",
                 ):
                     first_it["estado"] = opt
-                    save_current_state()
-                    st.rerun()
+                    save_current_state(leve=True)
+                    rerun_etapa()
 
         # A primeira marca da lista aparece pré-selecionada por padrão; a opção de
         # não informar marca fica visível por último, em vez de aparecer em branco.
@@ -972,8 +1044,8 @@ def tires():
                         type="primary" if it.get("estado") == opt else "secondary",
                     ):
                         it["estado"] = opt
-                        save_current_state()
-                        st.rerun()
+                        save_current_state(leve=True)
+                        rerun_etapa()
 
             current_brand = it.get("marca","")
             if current_brand in TIRE_BRANDS:
@@ -1165,7 +1237,7 @@ def damage_photos():
         st.session_state["avaria_up_n"] = n + 1
         st.session_state["avaria_up_erros"] = erros
         save_current_state()
-        st.rerun(scope="fragment")
+        rerun_etapa()
 
     if fotos:
         st.caption(f"{len(fotos)} foto(s) de avarias.")
@@ -1181,7 +1253,7 @@ def damage_photos():
             if st.button("Remover foto", key=f"avaria_rm_{item['id']}", use_container_width=True):
                 fotos.remove(item)
                 save_current_state()
-                st.rerun(scope="fragment")
+                rerun_etapa()
 
 @st.fragment
 def photos():
@@ -1211,7 +1283,7 @@ def photos():
 
                     if c["fotos"].get(key):
                         st.image(
-                            pil_b64(c["fotos"][key]),
+                            thumb_bytes(c["fotos"][key], 900),
                             use_container_width=True
                         )
                         if st.button(
@@ -1221,7 +1293,7 @@ def photos():
                         ):
                             c["fotos"].pop(key, None)
                             save_current_state()
-                            st.rerun()
+                            rerun_etapa()
                     else:
                         src=None
                         if usar_camera_navegador:
@@ -1243,7 +1315,7 @@ def photos():
                                 c["fotos"][key]=b64_image(src)
                                 audit("foto_adicionada", f"adicionou foto: {label}")
                                 save_current_state()
-                                st.rerun()
+                                rerun_etapa()
                             except Exception:
                                 st.error(f"Não foi possível salvar a foto: {label}")
 
@@ -1274,18 +1346,18 @@ def photos():
         save_current_state()
         if erros:
             st.session_state["extras_erros"] = erros
-        st.rerun(scope="fragment")
+        rerun_etapa()
     if st.session_state.pop("extras_erros", 0):
         st.error("Alguma foto de acessório não pôde ser salva.")
 
     if c.get("fotos_acessorios"):
         st.caption(f"{len(c['fotos_acessorios'])} foto(s) de acessórios salva(s).")
         for i,b64 in enumerate(c["fotos_acessorios"]):
-            st.image(pil_b64(b64), width=220)
+            st.image(thumb_bytes(b64), width=220)
             if st.button("Remover", key=f"remove_extra_{i}"):
                 c["fotos_acessorios"].pop(i)
                 save_current_state()
-                st.rerun()
+                rerun_etapa()
 
     
 
@@ -1466,10 +1538,19 @@ def pagina_administrativa(page):
         st.error(str(exc))
 
 st.markdown(view_marker_html(), unsafe_allow_html=True)
+cookie_sync()
+
+def _precisa_trocar_senha():
+    """Consulta o banco só até a senha estar em dia (redefinir o acesso revoga a sessão)."""
+    if st.session_state.get("_senha_ok"):
+        return False
+    precisa = S.precisa_trocar_senha(st.session_state.user)
+    st.session_state._senha_ok = not precisa
+    return precisa
 
 if st.session_state.user is None:
     login_screen()
-elif S.precisa_trocar_senha(st.session_state.user):
+elif _precisa_trocar_senha():
     def _senha_trocada():
         st.session_state.page = None
         st.rerun()

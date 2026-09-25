@@ -248,7 +248,7 @@ class TestClicksignHTTP(unittest.TestCase):
                      _resp(201, {"data": {"id": "SIG"}}), _resp(201, {"data": {"id": "R1"}}),
                      _resp(201, {"data": {"id": "R2"}}), _resp(200, {"data": {"id": "ENV"}}),
                      _resp(201, {"data": {"id": "N"}})]
-        sig = assinatura.Signatario("Maria Souza", "maria@cliente.com", "85999990000", "12345678900", "whatsapp")
+        sig = assinatura.Signatario("Maria Souza", "maria@cliente.com", "85999990000", "52998224725", "whatsapp")
         with mock.patch("assinatura.clicksign.requests.request", side_effect=respostas) as req:
             res = self.prov.enviar_para_assinatura("Laudo X", "X.pdf", b"%PDF-1.4 x", sig)
         self.assertEqual((res.id_externo, res.documento_id, res.signatario_id, res.link), ("ENV", "DOC", "SIG", ""))
@@ -265,10 +265,21 @@ class TestClicksignHTTP(unittest.TestCase):
         self.assertTrue(doc["content_base64"].startswith("data:application/pdf;base64,"))
         signer = json.loads(req.call_args_list[2].kwargs["data"])["data"]["attributes"]
         self.assertEqual(signer["phone_number"], "85999990000")
-        self.assertEqual(signer["documentation"], "123.456.789-00")
+        self.assertEqual(signer["documentation"], "529.982.247-25")
         self.assertEqual(signer["communicate_events"]["signature_request"], "whatsapp")
         ativa = json.loads(req.call_args_list[5].kwargs["data"])["data"]
         self.assertEqual(ativa["attributes"]["status"], "running")
+        # CPF inválido (ex.: 123.456.789-00) não é enviado: a Clicksign recusaria ("documentation - inválido")
+        respostas = [_resp(201, {"data": {"id": "SIG"}}), _resp(201, {"data": {"id": "R1"}}), _resp(201, {"data": {"id": "R2"}})]
+        with mock.patch("assinatura.clicksign.requests.request", side_effect=respostas) as req:
+            self.prov.adicionar_signatario("ENV", "DOC", assinatura.Signatario("Maria Souza", "m@x.com", "", "12345678900", "email"))
+        self.assertNotIn("documentation", json.loads(req.call_args_list[0].kwargs["data"])["data"]["attributes"])
+
+    def test_cpf_valido(self):
+        from assinatura.base import cpf_valido
+        self.assertTrue(cpf_valido("529.982.247-25"))
+        for ruim in ("123.456.789-00", "111.111.111-11", "123", "", None):
+            self.assertFalse(cpf_valido(ruim))
 
     def test_status_normalizado(self):
         casos = [("draft", [], "rascunho"), ("running", [], "aguardando"), ("closed", [], "assinado"),

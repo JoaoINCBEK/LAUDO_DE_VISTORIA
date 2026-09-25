@@ -53,11 +53,12 @@ class FluxoApp(unittest.TestCase):
         return at
 
     def recarregar(self, at):
-        """Nova execução a partir do token da URL (como recarregar a página no celular).
-        Necessário porque o AppTest mantém elementos antigos depois de st.rerun()."""
-        token = at.query_params.get("ac_token")
-        token = token[0] if isinstance(token, list) else token
-        return self.app(token)
+        """Nova execução com o token da sessão (como recarregar a página no celular).
+        Necessário porque o AppTest mantém elementos antigos depois de st.rerun().
+        O token não fica mais na URL (vai para um cookie, que o AppTest não simula);
+        aqui ele entra pelo caminho de compatibilidade ?ac_token=, que o app apaga da URL."""
+        self.assertFalse(at.query_params.get("ac_token"), "o token não pode ficar na URL")
+        return self.app(at.session_state["_ac_token"])
 
     def ok(self, at, onde):
         self.assertFalse(at.exception, f"{onde}: {[e.value for e in at.exception]}")
