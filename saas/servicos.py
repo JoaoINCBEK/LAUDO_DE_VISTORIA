@@ -1005,6 +1005,7 @@ _RE_EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 
 def _validar_signatario(dados, canais):
     from assinatura import CANAIS, Signatario
+    from assinatura.base import cpf_valido
     nome = re.sub(r"\s+", " ", str(dados.get("nome") or "")).strip()
     email = str(dados.get("email") or "").strip().lower()
     tel = _so_digitos(dados.get("telefone"))
@@ -1024,7 +1025,7 @@ def _validar_signatario(dados, canais):
         raise ErroNegocio("Informe o e-mail do signatário para enviar por e-mail.")
     if canal in ("whatsapp", "sms") and not tel:
         raise ErroNegocio(f"Informe o celular do signatário para enviar por {CANAIS[canal]}.")
-    return Signatario(nome=nome, email=email, telefone=tel, cpf=cpf if len(cpf) == 11 else "", canal=canal)
+    return Signatario(nome=nome, email=email, telefone=tel, cpf=cpf if cpf_valido(cpf) else "", canal=canal)
 
 
 def _assinatura_no_escopo(con, ator, assinatura_id):

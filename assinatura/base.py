@@ -113,6 +113,18 @@ _RE_EMAIL = re.compile(r"([A-Za-z0-9._%+-])[A-Za-z0-9._%+-]*@([A-Za-z0-9.-]+\.[A
 _RE_DIGITOS = re.compile(r"\d[\d .()-]{7,}\d")
 
 
+def cpf_valido(cpf):
+    """Confere os dígitos verificadores (o provedor recusa CPF inválido)."""
+    d = re.sub(r"\D", "", str(cpf or ""))
+    if len(d) != 11 or d == d[0] * 11:
+        return False
+    for n in (9, 10):
+        soma = sum(int(d[i]) * (n + 1 - i) for i in range(n))
+        if (soma * 10 % 11) % 10 != int(d[n]):
+            return False
+    return True
+
+
 def mascarar_email(email):
     email = (email or "").strip()
     if "@" not in email:

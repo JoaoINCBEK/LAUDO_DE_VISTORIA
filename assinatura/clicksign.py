@@ -34,7 +34,7 @@ import logging
 
 import requests
 
-from .base import ErroProvedor, ProvedorAssinatura, ResultadoStatus, mascarar_texto
+from .base import ErroProvedor, ProvedorAssinatura, ResultadoStatus, cpf_valido, mascarar_texto
 
 log = logging.getLogger("assinatura.clicksign")
 JSONAPI = "application/vnd.api+json"
@@ -117,7 +117,7 @@ class ProvedorClicksign(ProvedorAssinatura):
             attrs["email"] = s.email
         if s.telefone:
             attrs["phone_number"] = s.telefone
-        if len(s.cpf) == 11:
+        if cpf_valido(s.cpf):   # CPF inválido não vai: a Clicksign pede o CPF ao cliente na assinatura
             attrs["documentation"] = f"{s.cpf[:3]}.{s.cpf[3:6]}.{s.cpf[6:9]}-{s.cpf[9:]}"
         attrs["communicate_events"] = {
             "signature_request": s.canal,
